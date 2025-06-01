@@ -128,6 +128,47 @@ The implementation includes several performance optimizations:
 
 4. **Thread Safety**: All operations are thread-safe, allowing concurrent usage.
 
+### Benchmarking
+
+The library includes comprehensive benchmarking tools to measure performance:
+
+1. **Clause Skipping Benchmark**: Measures the performance impact of clause skipping with sparse inputs:
+```bash
+go test -bench=BenchmarkClauseSkipping -benchmem ./pkg/tsetlin/tests
+```
+
+2. **Throughput Benchmark**: Measures overall throughput in evaluations per second:
+```bash
+go test -bench=BenchmarkThroughput -benchmem ./pkg/tsetlin/tests
+```
+
+The benchmarks report several metrics:
+- Operations per second (EPS)
+- Microseconds per evaluation (µs/eval)
+- Memory allocations
+- Features*clauses per second
+
+Example benchmark results on an Intel Core Ultra 9 185H (5-second benchmark):
+```
+BenchmarkClauseSkipping-22         61021            105301 ns/op              9497 EPS         105.3 µs/eval             163 B/op          1 allocs/op
+BenchmarkThroughput-22               158          36292491 ns/op            274568 EPS           0.09105 features*clauses/EPS                 3.642 µs/eval   8192295 B/op      63380 allocs/op
+```
+
+These results show:
+- Clause skipping achieves ~9,497 evaluations per second with minimal memory allocation
+- Overall throughput reaches ~274,568 evaluations per second
+- Memory usage is optimized for clause skipping (163 bytes/op) compared to full evaluation (8MB/op)
+- The system can process ~0.09105 features*clauses per second in full evaluation mode
+- Average evaluation time:
+  - Clause skipping: 105.3 microseconds per evaluation
+  - Full evaluation: 3.642 microseconds per evaluation
+
+Performance characteristics:
+- Clause skipping is more memory-efficient but slower per evaluation
+- Full evaluation is faster per evaluation but uses more memory
+- The system can handle over 270K evaluations per second in full mode
+- Memory usage varies by ~50,000x between modes (163B vs 8MB per operation)
+
 ### Debugging and Analysis
 
 - Enable debug logging by setting `config.Debug = true`

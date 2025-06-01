@@ -43,6 +43,18 @@ Both examples demonstrate:
 - Analyzing the learned clauses
 - Error handling
 - Debug logging
+- Clause skipping optimization
+- Parallel processing
+
+## Performance Optimizations
+
+The examples showcase several performance optimizations:
+
+1. **Clause Skipping**: The implementation automatically skips clauses that don't use any of the active features in the input. This is particularly effective for sparse inputs where most features are zero.
+
+2. **Parallel Processing**: The multiclass example demonstrates parallel training and prediction using worker pools, which can significantly improve performance on multi-core systems.
+
+3. **Bit-level Operations**: The implementation uses bitwise operations for faster clause evaluation.
 
 ## Customizing the Examples
 
@@ -53,6 +65,8 @@ You can modify these examples to:
 - Change the classification threshold
 - Adjust the specificity parameter
 - Enable/disable debug logging
+- Monitor clause skipping behavior
+- Analyze performance with different input patterns
 
 ## Notes
 
@@ -62,4 +76,6 @@ You can modify these examples to:
   - Implement cross-validation
   - Add data preprocessing
   - Tune hyperparameters
-  - Add model persistence 
+  - Add model persistence
+  - Monitor clause skipping efficiency
+  - Profile performance with different input patterns 

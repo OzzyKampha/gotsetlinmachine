@@ -15,9 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite
 - CI/CD pipeline with GitHub Actions
 - Example command-line application
+- Clause skipping optimization for improved performance
+- Performance benchmarking tools
+- Thread-safe clause evaluation
+- Feature-based clause skipping mechanism
 
 ### Changed
-- None
+- Improved performance through clause skipping
+- Enhanced parallel processing in multiclass scenarios
+- Optimized clause evaluation with bitwise operations
+- Updated documentation with performance considerations
 
 ### Deprecated
 - None

@@ -20,6 +20,8 @@ multiclass_tsetlinmachine/
 
 - Binary and multiclass classification support
 - Thread-safe implementation
+- Optimized clause skipping for improved performance
+- Parallel processing with worker pools
 - Configurable hyperparameters:
   - Number of states (controls learning granularity)
   - Specificity parameter (s)
@@ -28,6 +30,7 @@ multiclass_tsetlinmachine/
   - Classification threshold
 - Probability estimates for predictions
 - Clause analysis and visualization
+- Debug logging capabilities
 - Easy-to-use API
 
 ## Installation
@@ -110,6 +113,27 @@ go run examples/main.go multiclass
 - `PredictProba(input []float64)`: Returns probability estimates
 - `GetClauseInfo()`: Returns information about learned clauses
 - `GetActiveClauses(input []float64)`: Returns active clauses for an input
+- `CanSkipClause(clauseIdx int, inputFeatureSet map[int]struct{})`: Checks if a clause can be skipped
+- `InterestedFeatures(clauseIdx int)`: Returns features used by a clause
+
+### Performance Optimizations
+
+The implementation includes several performance optimizations:
+
+1. **Clause Skipping**: Automatically skips clauses that don't use any of the active features in the input, significantly reducing computation time for sparse inputs.
+
+2. **Parallel Processing**: Uses worker pools for parallel training and prediction in multiclass scenarios.
+
+3. **Bit-level Operations**: Employs bitwise operations for faster clause evaluation.
+
+4. **Thread Safety**: All operations are thread-safe, allowing concurrent usage.
+
+### Debugging and Analysis
+
+- Enable debug logging by setting `config.Debug = true`
+- Use `GetClauseInfo()` to analyze learned patterns
+- Use `GetActiveClauses()` to understand which clauses are active for a given input
+- Monitor clause skipping behavior with `CanSkipClause()`
 
 ## License
 

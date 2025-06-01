@@ -93,30 +93,31 @@ func (tm *TsetlinMachine) Fit(X [][]float64, y []int, epochs int) error {
 }
 
 // canSkipClause checks if a clause can be skipped based on interested features
-func (tm *TsetlinMachine) canSkipClause(clauseIdx int, inputFeatureSet map[int]struct{}) bool {
-	// Check if any interested feature is in the input
+func (tm *TsetlinMachine) canSkipClause(clauseIdx int, inputFeatures uint64) bool {
+	// Use bitwise operations for faster feature matching
+	var clauseFeatures uint64
 	for feature := range tm.interestedFeatures[clauseIdx] {
-		if _, exists := inputFeatureSet[feature]; exists {
-			return false // Found a matching feature, don't skip
-		}
+		clauseFeatures |= 1 << feature
 	}
-	return true // No matching features, can skip
+
+	// If there's no overlap between clause features and input features, we can skip
+	return (clauseFeatures & inputFeatures) == 0
 }
 
 // calculateScore calculates the score for a given input with feature-based clause skipping
 func (tm *TsetlinMachine) calculateScore(input []float64, target int) float64 {
-	// Create input feature set for fast lookup
-	inputFeatureSet := make(map[int]struct{})
+	// Create input feature set using bitwise operations
+	var inputFeatures uint64
 	for i, val := range input {
 		if val == 1 {
-			inputFeatureSet[i] = struct{}{}
+			inputFeatures |= 1 << i
 		}
 	}
 
 	score := 0.0
 	for i, clause := range tm.clauses {
 		// Skip clause if none of its interested features are in the input
-		if tm.canSkipClause(i, inputFeatureSet) {
+		if tm.canSkipClause(i, inputFeatures) {
 			continue
 		}
 
@@ -138,16 +139,15 @@ func (tm *TsetlinMachine) evaluateClause(input []float64, clause []int) int {
 		return 1
 	}
 
-	// Use bitwise operations for faster evaluation
-	result := 1
+	// Check each literal against input
 	for j, literal := range clause {
-		// Bitwise XOR to check if literal matches input
-		if (literal ^ int(input[j])) == 1 {
-			return 0 // Early exit: literal doesn't match
+		// If literal is 1 and input is 0, or literal is 0 and input is 1, clause is false
+		if (literal == 1 && input[j] == 0) || (literal == 0 && input[j] == 1) {
+			return 0
 		}
 	}
 
-	return result
+	return 1
 }
 
 // updateStates updates the states of the automata based on feedback
@@ -326,7 +326,12 @@ func (tm *TsetlinMachine) InterestedFeatures(clauseIdx int) map[int]struct{} {
 
 // CanSkipClause is an exported version of canSkipClause for testing
 func (tm *TsetlinMachine) CanSkipClause(clauseIdx int, inputFeatureSet map[int]struct{}) bool {
-	return tm.canSkipClause(clauseIdx, inputFeatureSet)
+	// Convert input feature set to bits
+	var inputFeatures uint64
+	for feature := range inputFeatureSet {
+		inputFeatures |= 1 << feature
+	}
+	return tm.canSkipClause(clauseIdx, inputFeatures)
 }
 
 // CalculateScore is an exported version of calculateScore for testing

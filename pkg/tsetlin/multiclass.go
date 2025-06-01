@@ -114,8 +114,6 @@ func (mctm *MultiClassTsetlinMachine) Predict(input []float64) (PredictionResult
 	// Get scores from each binary classifier in parallel
 	scores := make([]float64, mctm.config.NumClasses)
 	var wg sync.WaitGroup
-	wg.Add(mctm.config.NumClasses)
-
 	workerChan := make(chan int, runtime.NumCPU())
 	for i := 0; i < runtime.NumCPU(); i++ {
 		workerChan <- i
@@ -217,8 +215,24 @@ func (mctm *MultiClassTsetlinMachine) GetActiveClauses(input []float64) [][]Clau
 	}
 
 	info := make([][]ClauseInfo, mctm.config.NumClasses)
-	for i, machine := range mctm.machines {
-		info[i] = machine.GetActiveClauses(input)[0]
+	var wg sync.WaitGroup
+	workerChan := make(chan int, runtime.NumCPU())
+	for i := 0; i < runtime.NumCPU(); i++ {
+		workerChan <- i
 	}
+
+	for class := 0; class < mctm.config.NumClasses; class++ {
+		class := class
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-workerChan
+			defer func() { workerChan <- 0 }()
+
+			info[class] = mctm.machines[class].GetActiveClauses(input)[0]
+		}()
+	}
+	wg.Wait()
+
 	return info
 }

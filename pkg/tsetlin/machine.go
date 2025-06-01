@@ -14,6 +14,8 @@ type TsetlinMachine struct {
 	states     [][]int
 	mu         sync.Mutex
 	randSource *rand.Rand
+	// Add interested features map for each clause
+	interestedFeatures []map[int]struct{}
 }
 
 // NewTsetlinMachine creates a new binary Tsetlin Machine
@@ -32,21 +34,29 @@ func NewTsetlinMachine(config Config) (*TsetlinMachine, error) {
 	}
 
 	tm := &TsetlinMachine{
-		config:     config,
-		clauses:    make([][]int, config.NumClauses),
-		states:     make([][]int, config.NumClauses),
-		randSource: rand.New(rand.NewSource(config.RandomSeed)),
+		config:             config,
+		clauses:            make([][]int, config.NumClauses),
+		states:             make([][]int, config.NumClauses),
+		randSource:         rand.New(rand.NewSource(config.RandomSeed)),
+		interestedFeatures: make([]map[int]struct{}, config.NumClauses),
 	}
 
-	// Initialize clauses and states
+	// Initialize clauses, states, and interested features
 	for i := range tm.clauses {
 		tm.clauses[i] = make([]int, config.NumLiterals)
 		tm.states[i] = make([]int, config.NumLiterals)
+		tm.interestedFeatures[i] = make(map[int]struct{})
+
 		for j := range tm.clauses[i] {
 			// Randomly initialize literals
 			tm.clauses[i][j] = tm.randSource.Intn(2)
 			// Initialize states to middle of range
 			tm.states[i][j] = config.NStates / 2
+
+			// Add feature to interested features if it's used in the clause
+			if tm.clauses[i][j] != 0 {
+				tm.interestedFeatures[i][j] = struct{}{}
+			}
 		}
 	}
 
@@ -82,10 +92,35 @@ func (tm *TsetlinMachine) Fit(X [][]float64, y []int, epochs int) error {
 	return nil
 }
 
-// calculateScore calculates the score for a given input
+// canSkipClause checks if a clause can be skipped based on interested features
+func (tm *TsetlinMachine) canSkipClause(clauseIdx int, inputFeatureSet map[int]struct{}) bool {
+	// Check if any interested feature is in the input
+	for feature := range tm.interestedFeatures[clauseIdx] {
+		if _, exists := inputFeatureSet[feature]; exists {
+			return false // Found a matching feature, don't skip
+		}
+	}
+	return true // No matching features, can skip
+}
+
+// calculateScore calculates the score for a given input with feature-based clause skipping
 func (tm *TsetlinMachine) calculateScore(input []float64, target int) float64 {
+	// Create input feature set for fast lookup
+	inputFeatureSet := make(map[int]struct{})
+	for i, val := range input {
+		if val == 1 {
+			inputFeatureSet[i] = struct{}{}
+		}
+	}
+
 	score := 0.0
 	for i, clause := range tm.clauses {
+		// Skip clause if none of its interested features are in the input
+		if tm.canSkipClause(i, inputFeatureSet) {
+			continue
+		}
+
+		// Evaluate clause only if it can't be skipped
 		clauseOutput := tm.evaluateClause(input, clause)
 		if tm.states[i][0] > tm.config.NStates/2 {
 			score += float64(clauseOutput)
@@ -98,20 +133,20 @@ func (tm *TsetlinMachine) calculateScore(input []float64, target int) float64 {
 
 // evaluateClause evaluates a single clause for the given input
 func (tm *TsetlinMachine) evaluateClause(input []float64, clause []int) int {
+	// Early exit if clause is empty
+	if len(clause) == 0 {
+		return 1
+	}
+
+	// Use bitwise operations for faster evaluation
 	result := 1
 	for j, literal := range clause {
-		if literal == 1 {
-			if input[j] == 0 {
-				result = 0
-				break
-			}
-		} else {
-			if input[j] == 1 {
-				result = 0
-				break
-			}
+		// Bitwise XOR to check if literal matches input
+		if (literal ^ int(input[j])) == 1 {
+			return 0 // Early exit: literal doesn't match
 		}
 	}
+
 	return result
 }
 
@@ -262,4 +297,44 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// Clauses returns a copy of the clauses
+func (tm *TsetlinMachine) Clauses() [][]int {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	clauses := make([][]int, len(tm.clauses))
+	for i, clause := range tm.clauses {
+		clauses[i] = make([]int, len(clause))
+		copy(clauses[i], clause)
+	}
+	return clauses
+}
+
+// InterestedFeatures returns the interested features for a clause
+func (tm *TsetlinMachine) InterestedFeatures(clauseIdx int) map[int]struct{} {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	features := make(map[int]struct{})
+	for feature := range tm.interestedFeatures[clauseIdx] {
+		features[feature] = struct{}{}
+	}
+	return features
+}
+
+// CanSkipClause is an exported version of canSkipClause for testing
+func (tm *TsetlinMachine) CanSkipClause(clauseIdx int, inputFeatureSet map[int]struct{}) bool {
+	return tm.canSkipClause(clauseIdx, inputFeatureSet)
+}
+
+// CalculateScore is an exported version of calculateScore for testing
+func (tm *TsetlinMachine) CalculateScore(input []float64, target int) float64 {
+	return tm.calculateScore(input, target)
+}
+
+// EvaluateClause is an exported version of evaluateClause for testing
+func (tm *TsetlinMachine) EvaluateClause(input []float64, clause []int) int {
+	return tm.evaluateClause(input, clause)
 }

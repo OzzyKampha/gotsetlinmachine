@@ -1,3 +1,3 @@
-module github.com/ozzykampha/multiclass_tsetlinmachine
+module github.com/OzzyKampha/gotsetlinmachine
 
 go 1.22.2

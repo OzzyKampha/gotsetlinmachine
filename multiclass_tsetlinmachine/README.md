@@ -1,104 +1,115 @@
-# Multiclass Tsetlin Machine in Go
+# Go Tsetlin Machine
 
-This project implements a multiclass Tsetlin Machine in Go. The Tsetlin Machine is a novel machine learning algorithm that uses propositional logic to learn patterns from data.
+A Go implementation of the Tsetlin Machine, a novel machine learning algorithm that uses propositional logic to learn patterns from data. This implementation supports both binary and multiclass classification tasks.
 
 ## Project Structure
 
 ```
 multiclass_tsetlinmachine/
-├── cmd/                    # Command-line applications
-│   └── example/           # Example program demonstrating usage
-├── internal/              # Private application code
-│   ├── model/            # Tsetlin Machine model implementation
-│   └── utils/            # Utility functions
-└── pkg/                  # Public library code
+├── pkg/                  # Public library code
+│   └── tsetlin/         # Tsetlin Machine implementation
+│       ├── machine.go   # Core Tsetlin Machine implementation
+│       └── types.go     # Type definitions and interfaces
+└── examples/            # Example code
+    ├── binary/         # Binary classification example
+    ├── multiclass/     # Multiclass classification example
+    └── main.go         # Example runner
 ```
 
 ## Features
 
-- Multiclass classification support
-- Efficient Go implementation with parallel processing
+- Binary and multiclass classification support
+- Thread-safe implementation
 - Configurable hyperparameters:
   - Number of states (controls learning granularity)
   - Specificity parameter (s)
-  - Number of clauses per class
+  - Number of clauses
   - Number of literals per clause
-- Debug logging for detailed training insights
+  - Classification threshold
+- Probability estimates for predictions
+- Clause analysis and visualization
 - Easy-to-use API
 
-## Getting Started
-
-### Prerequisites
-
-- Go 1.16 or higher
-
-### Installation
+## Installation
 
 ```bash
-go get github.com/ozzy/multiclass_tsetlinmachine
+go get github.com/OzzyKampha/gotsetlinmachine
 ```
 
-### Usage
+## Quick Start
 
 ```go
 package main
 
 import (
-    "github.com/ozzy/multiclass_tsetlinmachine/internal/model"
+    "fmt"
+    "github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
 
 func main() {
-    // Create a new multiclass Tsetlin Machine
-    // Parameters: numClasses, numFeatures, numClauses, numLiterals, threshold, s, nStates
-    mctm := model.NewMultiClassTsetlinMachine(3, 4, 10, 4, 0.5, 3.9, 20)
+    // Create configuration
+    config := tsetlin.DefaultConfig()
+    config.NumFeatures = 2
+    config.NumClauses = 10
+    config.NumLiterals = 2
+    config.Threshold = 5.0
+    config.S = 3.9
+    config.NStates = 100
+    config.RandomSeed = 42
 
-    // Set random seed for reproducibility
-    mctm.SetRandomState(42)
-
-    // Enable debug logging (optional)
-    mctm.SetDebug(true)
+    // Create Tsetlin Machine
+    machine, err := tsetlin.NewTsetlinMachine(config)
+    if err != nil {
+        log.Fatal(err)
+    }
 
     // Train the model
-    mctm.Fit(X, y, epochs)
+    X := [][]float64{{0, 0}, {0, 1}, {1, 0}, {1, 1}}
+    y := []int{0, 1, 1, 0}
+    machine.Fit(X, y, 100)
 
     // Make predictions
-    result := mctm.Predict(input)
+    result, _ := machine.Predict([]float64{0, 1})
     fmt.Printf("Predicted Class: %d\n", result.PredictedClass)
     fmt.Printf("Confidence: %.2f\n", result.Confidence)
 }
 ```
 
-### Command-line Example
+## Examples
 
-The example program demonstrates the usage of the Tsetlin Machine:
+The repository includes two example programs:
 
+1. Binary Classification (XOR Problem):
 ```bash
-# Run with default settings
-go run cmd/example/main.go
-
-# Run with debug logging enabled
-go run cmd/example/main.go -debug
+go run examples/main.go binary
 ```
 
-### Configuration Parameters
+2. Multiclass Classification:
+```bash
+go run examples/main.go multiclass
+```
 
-- `numClasses`: Number of classes in the classification problem
-- `numFeatures`: Number of input features
-- `numClauses`: Number of clauses per class (higher values increase model capacity)
-- `numLiterals`: Number of literals per clause
-- `threshold`: Classification threshold
-- `s`: Specificity parameter (controls clause formation)
-- `nStates`: Number of states in the automaton (controls learning granularity)
+## Configuration Parameters
 
-### Debug Mode
+- `NumFeatures`: Number of input features
+- `NumClauses`: Number of clauses (higher values increase model capacity)
+- `NumLiterals`: Number of literals per clause
+- `Threshold`: Classification threshold
+- `S`: Specificity parameter (controls clause formation)
+- `NStates`: Number of states in the automaton
+- `RandomSeed`: Seed for random number generation
 
-When debug mode is enabled, the model provides detailed logging about:
-- Active clauses and their votes
-- Training progress and predictions
-- Type I and Type II feedback
-- State changes in the automata
+## API Reference
 
-This is useful for understanding the model's learning process and diagnosing issues.
+### Core Functions
+
+- `NewTsetlinMachine(config Config)`: Creates a new Tsetlin Machine
+- `Fit(X [][]float64, y []int, epochs int)`: Trains the model
+- `Predict(input []float64)`: Makes predictions
+- `PredictClass(input []float64)`: Returns just the predicted class
+- `PredictProba(input []float64)`: Returns probability estimates
+- `GetClauseInfo()`: Returns information about learned clauses
+- `GetActiveClauses(input []float64)`: Returns active clauses for an input
 
 ## License
 

@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ozzykampha/multiclass_tsetlinmachine/internal/model"
+	"github.com/ozzykampha/gotsetlinmachine/internal/model"
 )
 
 // generateTestData creates synthetic test data with 1000 features

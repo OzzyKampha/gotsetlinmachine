@@ -1,7 +1,11 @@
 package tests
 
 import (
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
@@ -114,7 +118,6 @@ func TestClauseSkipping(t *testing.T) {
 
 // BenchmarkClauseSkipping measures the performance impact of clause skipping
 func BenchmarkClauseSkipping(b *testing.B) {
-	// Create configuration
 	config := tsetlin.DefaultConfig()
 	config.NumFeatures = 500
 	config.NumClauses = 1000
@@ -124,65 +127,76 @@ func BenchmarkClauseSkipping(b *testing.B) {
 	config.NStates = 100
 	config.RandomSeed = 42
 
-	// Create machine
 	tm, err := tsetlin.NewTsetlinMachine(config)
 	if err != nil {
 		b.Fatalf("Failed to create Tsetlin Machine: %v", err)
 	}
 
-	// Create sparse input (only 1% of features are 1)
 	input := make([]float64, config.NumFeatures)
 	for i := 0; i < len(input); i++ {
-		if i%100 == 0 { // 1% of features are 1
+		if i%100 == 0 {
 			input[i] = 1
 		}
 	}
 
-	// Reset timer before benchmark
+	numCPU := runtime.NumCPU()
+	var processed int64
+	var wg sync.WaitGroup
 	b.ResetTimer()
+	start := time.Now()
+	eventChan := make(chan struct{}, numCPU*2)
 
-	// Run benchmark
-	for i := 0; i < b.N; i++ {
-		score := tm.CalculateScore(input, 0)
-		_ = score // Prevent compiler optimization
+	for i := 0; i < numCPU; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range eventChan {
+				score := tm.CalculateScore(input, 0)
+				_ = score
+				atomic.AddInt64(&processed, 1)
+			}
+		}()
 	}
 
-	// Calculate and report metrics
-	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "EPS")
-	b.ReportMetric(float64(b.Elapsed().Microseconds())/float64(b.N), "µs/eval")
+	for i := 0; i < b.N; i++ {
+		eventChan <- struct{}{}
+	}
+	close(eventChan)
+	wg.Wait()
+	dur := time.Since(start)
+	eps := float64(processed) / dur.Seconds()
+	b.ReportMetric(eps, "EPS")
+	b.ReportMetric(float64(dur.Microseconds())/float64(processed), "µs/eval")
 }
 
 // BenchmarkLargeTsetlinMachine measures performance with a very large TM
 func BenchmarkLargeTsetlinMachine(b *testing.B) {
-	// Create configuration for a very large TM
 	config := tsetlin.DefaultConfig()
-	config.NumFeatures = 500 // 500 features
-	config.NumClauses = 1000 // 1000 clauses
-	config.NumLiterals = 20  // 20 literals per clause
+	config.NumFeatures = 500
+	config.NumClauses = 1000
+	config.NumLiterals = 20
 	config.Threshold = 5.0
 	config.S = 3.9
 	config.NStates = 100
 	config.RandomSeed = 42
 
-	// Create machine
 	tm, err := tsetlin.NewTsetlinMachine(config)
 	if err != nil {
 		b.Fatalf("Failed to create Tsetlin Machine: %v", err)
 	}
 
-	// Create different types of inputs for testing
 	inputs := []struct {
 		name     string
-		density  float64 // percentage of 1s
+		density  float64
 		features []float64
 	}{
 		{
 			name:    "Very Sparse",
-			density: 0.001, // 0.1% ones
+			density: 0.001,
 			features: func() []float64 {
 				input := make([]float64, config.NumFeatures)
 				for i := 0; i < len(input); i++ {
-					if i%1000 == 0 { // 0.1% of features are 1
+					if i%1000 == 0 {
 						input[i] = 1
 					}
 				}
@@ -191,11 +205,11 @@ func BenchmarkLargeTsetlinMachine(b *testing.B) {
 		},
 		{
 			name:    "Sparse",
-			density: 0.01, // 1% ones
+			density: 0.01,
 			features: func() []float64 {
 				input := make([]float64, config.NumFeatures)
 				for i := 0; i < len(input); i++ {
-					if i%100 == 0 { // 1% of features are 1
+					if i%100 == 0 {
 						input[i] = 1
 					}
 				}
@@ -204,11 +218,11 @@ func BenchmarkLargeTsetlinMachine(b *testing.B) {
 		},
 		{
 			name:    "Dense",
-			density: 0.5, // 50% ones
+			density: 0.5,
 			features: func() []float64 {
 				input := make([]float64, config.NumFeatures)
 				for i := 0; i < len(input); i++ {
-					if i%2 == 0 { // 50% of features are 1
+					if i%2 == 0 {
 						input[i] = 1
 					}
 				}
@@ -217,47 +231,36 @@ func BenchmarkLargeTsetlinMachine(b *testing.B) {
 		},
 	}
 
-	// Run benchmarks for each input type
 	for _, input := range inputs {
 		b.Run(input.name, func(b *testing.B) {
-			// Reset timer before benchmark
+			numCPU := runtime.NumCPU()
+			var processed int64
+			var wg sync.WaitGroup
 			b.ResetTimer()
+			start := time.Now()
+			eventChan := make(chan struct{}, numCPU*2)
 
-			// Run benchmark
+			for i := 0; i < numCPU; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for range eventChan {
+						score := tm.CalculateScore(input.features, 0)
+						_ = score
+						atomic.AddInt64(&processed, 1)
+					}
+				}()
+			}
+
 			for i := 0; i < b.N; i++ {
-				score := tm.CalculateScore(input.features, 0)
-				_ = score // Prevent compiler optimization
+				eventChan <- struct{}{}
 			}
-
-			// Calculate metrics
-			eps := float64(b.N) / b.Elapsed().Seconds()
-			featuresClausesPerSecond := float64(config.NumFeatures*config.NumClauses) / eps
-			activeFeatures := 0
-			for _, val := range input.features {
-				if val == 1 {
-					activeFeatures++
-				}
-			}
-			activeFeaturesPercent := float64(activeFeatures) / float64(config.NumFeatures) * 100
-			estimatedClausesEvaluated := float64(config.NumClauses) * (activeFeaturesPercent / 100)
-			actualFeaturesClausesPerSecond := float64(activeFeatures*config.NumClauses) / eps
-
-			// Report standard metrics
+			close(eventChan)
+			wg.Wait()
+			dur := time.Since(start)
+			eps := float64(processed) / dur.Seconds()
 			b.ReportMetric(eps, "EPS")
-			b.ReportMetric(float64(b.Elapsed().Microseconds())/float64(b.N), "µs/eval")
-			b.ReportMetric(featuresClausesPerSecond, "features*clauses/EPS")
-			b.ReportMetric(float64(b.Elapsed().Microseconds())/float64(b.N)/float64(config.NumClauses), "µs/clause")
-
-			// Report detailed analysis
-			b.Logf("\nDetailed Analysis for %s input:", input.name)
-			b.Logf("Total Features: %d", config.NumFeatures)
-			b.Logf("Total Clauses: %d", config.NumClauses)
-			b.Logf("Active Features: %d (%.2f%%)", activeFeatures, activeFeaturesPercent)
-			b.Logf("Estimated Clauses Evaluated: %.0f (%.2f%%)", estimatedClausesEvaluated, activeFeaturesPercent)
-			b.Logf("Raw Throughput: %.2f features*clauses/EPS", featuresClausesPerSecond)
-			b.Logf("Effective Throughput: %.2f active_features*clauses/EPS", actualFeaturesClausesPerSecond)
-			b.Logf("Theoretical Maximum: %d features*clauses", config.NumFeatures*config.NumClauses)
-			b.Logf("Efficiency: %.2f%%", (actualFeaturesClausesPerSecond/float64(config.NumFeatures*config.NumClauses))*100)
+			b.ReportMetric(float64(dur.Microseconds())/float64(processed), "µs/eval")
 		})
 	}
 }

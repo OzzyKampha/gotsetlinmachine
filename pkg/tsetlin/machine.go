@@ -1,3 +1,5 @@
+// Package tsetlin implements the Tsetlin Machine, a novel machine learning algorithm
+// that uses propositional logic to learn patterns from data.
 package tsetlin
 
 import (
@@ -7,7 +9,9 @@ import (
 	"sync"
 )
 
-// TsetlinMachine represents a binary Tsetlin Machine
+// TsetlinMachine represents a binary Tsetlin Machine.
+// It implements the Machine interface and provides the core functionality
+// for binary classification using Tsetlin Automata.
 type TsetlinMachine struct {
 	config     Config
 	clauses    [][]int
@@ -18,7 +22,9 @@ type TsetlinMachine struct {
 	interestedFeatures []map[int]struct{}
 }
 
-// NewTsetlinMachine creates a new binary Tsetlin Machine
+// NewTsetlinMachine creates a new binary Tsetlin Machine.
+// It initializes the machine with the given configuration and sets up
+// the clauses, states, and interested features tracking.
 func NewTsetlinMachine(config Config) (*TsetlinMachine, error) {
 	if config.NumFeatures <= 0 {
 		return nil, fmt.Errorf("number of features must be positive")
@@ -63,7 +69,9 @@ func NewTsetlinMachine(config Config) (*TsetlinMachine, error) {
 	return tm, nil
 }
 
-// Fit trains the Tsetlin Machine on the given data
+// Fit trains the Tsetlin Machine on the given data.
+// It updates the states of the Tsetlin Automata based on the training data
+// and target labels over the specified number of epochs.
 func (tm *TsetlinMachine) Fit(X [][]float64, y []int, epochs int) error {
 	if len(X) != len(y) {
 		return fmt.Errorf("X and y must have the same length")
@@ -92,7 +100,8 @@ func (tm *TsetlinMachine) Fit(X [][]float64, y []int, epochs int) error {
 	return nil
 }
 
-// canSkipClause checks if a clause can be skipped based on interested features
+// canSkipClause checks if a clause can be skipped based on interested features.
+// It uses bitwise operations for efficient feature matching.
 func (tm *TsetlinMachine) canSkipClause(clauseIdx int, inputFeatures uint64) bool {
 	// Use bitwise operations for faster feature matching
 	var clauseFeatures uint64
@@ -104,7 +113,8 @@ func (tm *TsetlinMachine) canSkipClause(clauseIdx int, inputFeatures uint64) boo
 	return (clauseFeatures & inputFeatures) == 0
 }
 
-// calculateScore calculates the score for a given input with feature-based clause skipping
+// calculateScore calculates the score for a given input with feature-based clause skipping.
+// It efficiently evaluates clauses using bitwise operations and clause skipping.
 func (tm *TsetlinMachine) calculateScore(input []float64, target int) float64 {
 	// Create input feature set using bitwise operations
 	var inputFeatures uint64
@@ -132,7 +142,8 @@ func (tm *TsetlinMachine) calculateScore(input []float64, target int) float64 {
 	return score
 }
 
-// evaluateClause evaluates a single clause for the given input
+// evaluateClause evaluates a single clause for the given input.
+// It returns 1 if the clause is satisfied, 0 otherwise.
 func (tm *TsetlinMachine) evaluateClause(input []float64, clause []int) int {
 	// Early exit if clause is empty
 	if len(clause) == 0 {
@@ -150,7 +161,8 @@ func (tm *TsetlinMachine) evaluateClause(input []float64, clause []int) int {
 	return 1
 }
 
-// updateStates updates the states of the automata based on feedback
+// updateStates updates the states of the automata based on feedback.
+// It implements Type I and Type II feedback mechanisms for learning.
 func (tm *TsetlinMachine) updateStates(input []float64, target int, score float64) {
 	// Type I feedback
 	if (target == 1 && score < tm.config.Threshold) || (target == 0 && score > -tm.config.Threshold) {
@@ -185,7 +197,8 @@ func (tm *TsetlinMachine) updateStates(input []float64, target int, score float6
 	}
 }
 
-// Predict returns the prediction results for the input
+// Predict returns the prediction results for the input.
+// It includes the predicted class, confidence scores, and voting information.
 func (tm *TsetlinMachine) Predict(input []float64) (PredictionResult, error) {
 	if len(input) != tm.config.NumFeatures {
 		return PredictionResult{}, fmt.Errorf("input features dimension mismatch: expected %d, got %d",
@@ -206,7 +219,8 @@ func (tm *TsetlinMachine) Predict(input []float64) (PredictionResult, error) {
 	}, nil
 }
 
-// PredictClass returns just the predicted class
+// PredictClass returns just the predicted class for the input.
+// This is a convenience method when only the class prediction is needed.
 func (tm *TsetlinMachine) PredictClass(input []float64) (int, error) {
 	result, err := tm.Predict(input)
 	if err != nil {
@@ -215,7 +229,8 @@ func (tm *TsetlinMachine) PredictClass(input []float64) (int, error) {
 	return result.PredictedClass, nil
 }
 
-// PredictProba returns probability estimates for each class
+// PredictProba returns probability estimates for each class.
+// The probabilities are calculated using softmax on the voting scores.
 func (tm *TsetlinMachine) PredictProba(input []float64) ([]float64, error) {
 	result, err := tm.Predict(input)
 	if err != nil {
@@ -238,7 +253,8 @@ func (tm *TsetlinMachine) PredictProba(input []float64) ([]float64, error) {
 	return probs, nil
 }
 
-// GetClauseInfo returns information about the clauses in the machine
+// GetClauseInfo returns information about the clauses in the machine.
+// This is useful for analyzing the learned patterns and model interpretability.
 func (tm *TsetlinMachine) GetClauseInfo() [][]ClauseInfo {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -259,7 +275,8 @@ func (tm *TsetlinMachine) GetClauseInfo() [][]ClauseInfo {
 	return info
 }
 
-// GetActiveClauses returns information about the active clauses for a given input
+// GetActiveClauses returns information about the active clauses for a given input.
+// This helps understand which clauses contributed to the prediction.
 func (tm *TsetlinMachine) GetActiveClauses(input []float64) [][]ClauseInfo {
 	if len(input) != tm.config.NumFeatures {
 		return nil
@@ -299,7 +316,8 @@ func max(a, b int) int {
 	return b
 }
 
-// Clauses returns a copy of the clauses
+// Clauses returns a copy of the clauses.
+// This is useful for debugging and analysis.
 func (tm *TsetlinMachine) Clauses() [][]int {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -312,7 +330,8 @@ func (tm *TsetlinMachine) Clauses() [][]int {
 	return clauses
 }
 
-// InterestedFeatures returns the interested features for a clause
+// InterestedFeatures returns the interested features for a clause.
+// This helps understand which features are used by each clause.
 func (tm *TsetlinMachine) InterestedFeatures(clauseIdx int) map[int]struct{} {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -324,7 +343,8 @@ func (tm *TsetlinMachine) InterestedFeatures(clauseIdx int) map[int]struct{} {
 	return features
 }
 
-// CanSkipClause is an exported version of canSkipClause for testing
+// CanSkipClause is an exported version of canSkipClause for testing.
+// It checks if a clause can be skipped based on the input features.
 func (tm *TsetlinMachine) CanSkipClause(clauseIdx int, inputFeatureSet map[int]struct{}) bool {
 	// Convert input feature set to bits
 	var inputFeatures uint64
@@ -334,12 +354,14 @@ func (tm *TsetlinMachine) CanSkipClause(clauseIdx int, inputFeatureSet map[int]s
 	return tm.canSkipClause(clauseIdx, inputFeatures)
 }
 
-// CalculateScore is an exported version of calculateScore for testing
+// CalculateScore is an exported version of calculateScore for testing.
+// It calculates the score for a given input with feature-based clause skipping.
 func (tm *TsetlinMachine) CalculateScore(input []float64, target int) float64 {
 	return tm.calculateScore(input, target)
 }
 
-// EvaluateClause is an exported version of evaluateClause for testing
+// EvaluateClause is an exported version of evaluateClause for testing.
+// It evaluates a single clause for the given input.
 func (tm *TsetlinMachine) EvaluateClause(input []float64, clause []int) int {
 	return tm.evaluateClause(input, clause)
 }

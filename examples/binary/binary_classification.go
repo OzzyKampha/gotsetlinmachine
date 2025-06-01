@@ -1,3 +1,6 @@
+// Package binary demonstrates binary classification using the Tsetlin Machine.
+// This example shows how to use the Tsetlin Machine to solve the XOR problem,
+// a classic example of a non-linearly separable classification task.
 package binary
 
 import (
@@ -7,7 +10,12 @@ import (
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
 
-// RunBinaryExample demonstrates binary classification using the XOR problem
+// RunBinaryExample demonstrates binary classification using the XOR problem.
+// It shows how to:
+// 1. Configure a Tsetlin Machine for binary classification
+// 2. Train it on the XOR dataset
+// 3. Make predictions and analyze the results
+// 4. Examine the learned clauses and their states
 func RunBinaryExample() {
 	// Create configuration for binary classification
 	config := tsetlin.DefaultConfig()
@@ -68,8 +76,8 @@ func RunBinaryExample() {
 	fmt.Println("Clause Information:")
 	clauseInfo := machine.GetClauseInfo()
 	for i, clause := range clauseInfo[0] {
-		fmt.Printf("Clause %d:\n", i+1)
-		fmt.Printf("  Is Positive: %v\n", clause.IsPositive)
+		fmt.Printf("Clause %d:\n", i)
 		fmt.Printf("  Literals: %v\n", clause.Literals)
+		fmt.Printf("  Is Positive: %v\n", clause.IsPositive)
 	}
 }

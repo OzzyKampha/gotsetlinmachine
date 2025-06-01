@@ -1,3 +1,5 @@
+// Package tsetlin implements the Tsetlin Machine, a novel machine learning algorithm
+// that uses propositional logic to learn patterns from data.
 package tsetlin
 
 import (
@@ -7,7 +9,9 @@ import (
 	"sync"
 )
 
-// MultiClassTsetlinMachine represents a multiclass Tsetlin Machine using one-vs-all approach
+// MultiClassTsetlinMachine represents a multiclass Tsetlin Machine using one-vs-all approach.
+// It implements the Machine interface and provides multiclass classification capabilities
+// by using multiple binary Tsetlin Machines, one for each class.
 type MultiClassTsetlinMachine struct {
 	config   Config
 	machines []*TsetlinMachine
@@ -15,7 +19,8 @@ type MultiClassTsetlinMachine struct {
 	mu       sync.Mutex
 }
 
-// NewMultiClassTsetlinMachine creates a new multiclass Tsetlin Machine
+// NewMultiClassTsetlinMachine creates a new multiclass Tsetlin Machine.
+// It initializes one binary Tsetlin Machine per class using the one-vs-all approach.
 func NewMultiClassTsetlinMachine(config Config) (*MultiClassTsetlinMachine, error) {
 	if config.NumClasses < 2 {
 		return nil, fmt.Errorf("number of classes must be at least 2")
@@ -52,7 +57,8 @@ func NewMultiClassTsetlinMachine(config Config) (*MultiClassTsetlinMachine, erro
 	return mctm, nil
 }
 
-// Fit trains the multiclass Tsetlin Machine
+// Fit trains the multiclass Tsetlin Machine.
+// It trains each binary classifier in parallel using worker pools.
 func (mctm *MultiClassTsetlinMachine) Fit(X [][]float64, y []int, epochs int) error {
 	if len(X) != len(y) {
 		return fmt.Errorf("X and y must have the same length")
@@ -104,7 +110,8 @@ func (mctm *MultiClassTsetlinMachine) Fit(X [][]float64, y []int, epochs int) er
 	return nil
 }
 
-// Predict returns the prediction results for the input
+// Predict returns the prediction results for the input.
+// It combines predictions from all binary classifiers to make the final prediction.
 func (mctm *MultiClassTsetlinMachine) Predict(input []float64) (PredictionResult, error) {
 	if len(input) != mctm.config.NumFeatures {
 		return PredictionResult{}, fmt.Errorf("input features dimension mismatch: expected %d, got %d",
@@ -164,7 +171,8 @@ func (mctm *MultiClassTsetlinMachine) Predict(input []float64) (PredictionResult
 	}, nil
 }
 
-// PredictClass returns just the predicted class
+// PredictClass returns just the predicted class for the input.
+// This is a convenience method when only the class prediction is needed.
 func (mctm *MultiClassTsetlinMachine) PredictClass(input []float64) (int, error) {
 	result, err := mctm.Predict(input)
 	if err != nil {
@@ -173,7 +181,8 @@ func (mctm *MultiClassTsetlinMachine) PredictClass(input []float64) (int, error)
 	return result.PredictedClass, nil
 }
 
-// PredictProba returns probability estimates for each class
+// PredictProba returns probability estimates for each class.
+// The probabilities are calculated using softmax on the voting scores.
 func (mctm *MultiClassTsetlinMachine) PredictProba(input []float64) ([]float64, error) {
 	result, err := mctm.Predict(input)
 	if err != nil {
@@ -196,7 +205,8 @@ func (mctm *MultiClassTsetlinMachine) PredictProba(input []float64) ([]float64, 
 	return probs, nil
 }
 
-// GetClauseInfo returns information about the clauses in the machine
+// GetClauseInfo returns information about the clauses in the machine.
+// This is useful for analyzing the learned patterns and model interpretability.
 func (mctm *MultiClassTsetlinMachine) GetClauseInfo() [][]ClauseInfo {
 	mctm.mu.Lock()
 	defer mctm.mu.Unlock()
@@ -208,7 +218,8 @@ func (mctm *MultiClassTsetlinMachine) GetClauseInfo() [][]ClauseInfo {
 	return info
 }
 
-// GetActiveClauses returns information about the active clauses for a given input
+// GetActiveClauses returns information about the active clauses for a given input.
+// This helps understand which clauses contributed to the prediction.
 func (mctm *MultiClassTsetlinMachine) GetActiveClauses(input []float64) [][]ClauseInfo {
 	if len(input) != mctm.config.NumFeatures {
 		return nil

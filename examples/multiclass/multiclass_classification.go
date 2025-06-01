@@ -1,3 +1,6 @@
+// Package multiclass demonstrates multiclass classification using the Tsetlin Machine.
+// This example shows how to use the Tsetlin Machine for pattern recognition
+// with multiple classes, using the one-vs-all approach.
 package multiclass
 
 import (
@@ -7,7 +10,12 @@ import (
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
 
-// RunMulticlassExample demonstrates multiclass classification using pattern recognition
+// RunMulticlassExample demonstrates multiclass classification using pattern recognition.
+// It shows how to:
+// 1. Configure a multiclass Tsetlin Machine
+// 2. Train it on a dataset with multiple classes
+// 3. Make predictions on both seen and unseen patterns
+// 4. Analyze the learned clauses for each class
 func RunMulticlassExample() {
 	// Create configuration for multiclass classification
 	config := tsetlin.DefaultConfig()
@@ -74,28 +82,23 @@ func RunMulticlassExample() {
 			continue
 		}
 
-		fmt.Printf("\nInput: %v\n", input)
+		fmt.Printf("Input: %v\n", input)
 		fmt.Printf("Predicted class: %d\n", result.PredictedClass)
 		fmt.Printf("Confidence: %.2f\n", result.Confidence)
-		fmt.Printf("Class probabilities: [%.3f, %.3f, %.3f]\n",
-			probs[0], probs[1], probs[2])
-
-		// Get active clauses for each class
-		activeClauses := machine.GetActiveClauses(input)
-		for class, clauses := range activeClauses {
-			fmt.Printf("Active clauses for class %d: %d\n", class, len(clauses))
-		}
+		fmt.Printf("Probabilities: [%.3f, %.3f, %.3f]\n", probs[0], probs[1], probs[2])
+		fmt.Printf("Active clauses: %v\n", len(machine.GetActiveClauses(input)[0]))
+		fmt.Println()
 	}
 
 	// Get and print clause information for each class
-	fmt.Println("\nClause Information by Class:")
+	fmt.Println("Clause Information:")
 	clauseInfo := machine.GetClauseInfo()
-	for class, clauses := range clauseInfo {
+	for class := 0; class < config.NumClasses; class++ {
 		fmt.Printf("\nClass %d:\n", class)
-		for i, clause := range clauses {
-			fmt.Printf("  Clause %d:\n", i+1)
-			fmt.Printf("    Is Positive: %v\n", clause.IsPositive)
+		for i, clause := range clauseInfo[class] {
+			fmt.Printf("  Clause %d:\n", i)
 			fmt.Printf("    Literals: %v\n", clause.Literals)
+			fmt.Printf("    Is Positive: %v\n", clause.IsPositive)
 		}
 	}
 }

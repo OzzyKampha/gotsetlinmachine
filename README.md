@@ -5,11 +5,10 @@ A Go implementation of the Tsetlin Machine, a novel machine learning algorithm t
 ## Project Structure
 
 ```
-multiclass_tsetlinmachine/
-├── pkg/                  # Public library code
-│   └── tsetlin/         # Tsetlin Machine implementation
-│       ├── machine.go   # Core Tsetlin Machine implementation
-│       └── types.go     # Type definitions and interfaces
+pkg/                  # Public library code
+└── tsetlin/         # Tsetlin Machine implementation
+    ├── machine.go   # Core Tsetlin Machine implementation
+    └── types.go     # Type definitions and interfaces
 └── examples/            # Example code
     ├── binary/         # Binary classification example
     ├── multiclass/     # Multiclass classification example

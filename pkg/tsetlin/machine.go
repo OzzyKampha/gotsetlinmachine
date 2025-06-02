@@ -20,6 +20,9 @@ type TsetlinMachine struct {
 	randSource *rand.Rand
 	// Add interested features map for each clause
 	interestedFeatures []map[int]struct{}
+	// Add MatchScore and Momentum tracking for each clause
+	matchScores []float64
+	momentums   []float64
 }
 
 // NewTsetlinMachine creates a new binary Tsetlin Machine.
@@ -45,6 +48,8 @@ func NewTsetlinMachine(config Config) (*TsetlinMachine, error) {
 		states:             make([][]int, config.NumClauses),
 		randSource:         rand.New(rand.NewSource(config.RandomSeed)),
 		interestedFeatures: make([]map[int]struct{}, config.NumClauses),
+		matchScores:        make([]float64, config.NumClauses),
+		momentums:          make([]float64, config.NumClauses),
 	}
 
 	// Initialize clauses, states, and interested features
@@ -52,6 +57,8 @@ func NewTsetlinMachine(config Config) (*TsetlinMachine, error) {
 		tm.clauses[i] = make([]int, config.NumLiterals)
 		tm.states[i] = make([]int, config.NumLiterals)
 		tm.interestedFeatures[i] = make(map[int]struct{})
+		tm.matchScores[i] = 0.0 // Initialize MatchScore to 0
+		tm.momentums[i] = 0.0   // Initialize Momentum to 0
 
 		for j := range tm.clauses[i] {
 			// Randomly initialize literals
@@ -128,11 +135,25 @@ func (tm *TsetlinMachine) calculateScore(input []float64, target int) float64 {
 	for i, clause := range tm.clauses {
 		// Skip clause if none of its interested features are in the input
 		if tm.canSkipClause(i, inputFeatures) {
+			// Update MatchScore and Momentum for skipped clauses
+			tm.matchScores[i] *= 0.9 // Decay MatchScore
+			tm.momentums[i] *= 0.8   // Faster decay for inactive clauses
 			continue
 		}
 
 		// Evaluate clause only if it can't be skipped
 		clauseOutput := tm.evaluateClause(input, clause)
+		if clauseOutput == 1 {
+			// Update MatchScore and Momentum for matched clauses
+			tm.matchScores[i] += 1.0 // Increase MatchScore
+			tm.momentums[i] += 0.5   // Increase Momentum
+		} else {
+			// Update MatchScore and Momentum for unmatched clauses
+			tm.matchScores[i] *= 0.9 // Decay MatchScore
+			tm.momentums[i] *= 0.8   // Faster decay for inactive clauses
+		}
+
+		// Add to score based on clause state
 		if tm.states[i][0] > tm.config.NStates/2 {
 			score += float64(clauseOutput)
 		} else {
@@ -211,11 +232,48 @@ func (tm *TsetlinMachine) Predict(input []float64) (PredictionResult, error) {
 		predictedClass = 1
 	}
 
+	// Calculate confidence using MatchScore and Momentum
+	var activeMomentum float64
+	var avgMatchScore float64
+	activeClauses := 0
+
+	// Create input feature set using bitwise operations
+	var inputFeatures uint64
+	for i, val := range input {
+		if val == 1 {
+			inputFeatures |= 1 << i
+		}
+	}
+
+	// Calculate average momentum and match score for active clauses
+	for i := range tm.clauses {
+		if !tm.canSkipClause(i, inputFeatures) {
+			clauseOutput := tm.evaluateClause(input, tm.clauses[i])
+			if clauseOutput == 1 {
+				activeMomentum += tm.momentums[i]
+				avgMatchScore += tm.matchScores[i]
+				activeClauses++
+			}
+		}
+	}
+
+	// Calculate final confidence
+	margin := math.Abs(score) / float64(tm.config.NumClauses)
+	if activeClauses > 0 {
+		activeMomentum /= float64(activeClauses)
+		avgMatchScore /= float64(activeClauses)
+	}
+
+	// Weighted sum of margin, momentum, and match score
+	confidence := 0.5*margin + 0.3*activeMomentum + 0.2*avgMatchScore
+	// Clamp confidence between 0 and 1
+	confidence = math.Max(0.0, math.Min(1.0, confidence))
+
 	return PredictionResult{
 		Votes:          []float64{math.Abs(score), -math.Abs(score)},
 		PredictedClass: predictedClass,
-		Margin:         math.Abs(score),
-		Confidence:     math.Abs(score) / float64(tm.config.NumClauses),
+		Margin:         margin,
+		Confidence:     confidence,
 	}, nil
 }
 
@@ -266,6 +324,8 @@ func (tm *TsetlinMachine) GetClauseInfo() [][]ClauseInfo {
 		info[0][i] = ClauseInfo{
 			Literals:   make([]bool, len(clause)),
 			IsPositive: tm.states[i][0] > tm.config.NStates/2,
+			MatchScore: tm.matchScores[i],
+			Momentum:   tm.momentums[i],
 		}
 		for j, literal := range clause {
 			info[0][i].Literals[j] = literal == 1

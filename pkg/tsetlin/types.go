@@ -35,6 +35,10 @@ type ClauseInfo struct {
 	Literals []bool
 	// State of the clause (true for positive, false for negative)
 	IsPositive bool
+	// MatchScore tracks how well the clause matches patterns
+	MatchScore float64
+	// Momentum tracks the clause's activity level
+	Momentum float64
 }
 
 // Machine represents a Tsetlin Machine classifier interface.

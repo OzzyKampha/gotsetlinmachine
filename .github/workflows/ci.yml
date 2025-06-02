@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
 
 jobs:
   test:
@@ -30,12 +30,6 @@ jobs:
           echo "Tests failed"
           exit 1
         fi
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.txt
-        fail_ci_if_error: true
 
   lint:
     name: Lint

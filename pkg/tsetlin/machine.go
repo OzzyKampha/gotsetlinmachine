@@ -94,6 +94,12 @@ func (tm *TsetlinMachine) Fit(X [][]float64, y []int, epochs int) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
+	// Print initial state summary
+	if tm.config.Debug {
+		fmt.Printf("\nInitial state summary:\n")
+		tm.printStateSummary()
+	}
+
 	for epoch := 0; epoch < epochs; epoch++ {
 		for i, input := range X {
 			// Get prediction for current input
@@ -102,9 +108,43 @@ func (tm *TsetlinMachine) Fit(X [][]float64, y []int, epochs int) error {
 			// Update states based on feedback
 			tm.updateStates(input, y[i], score)
 		}
+
+		// Print state summary after each epoch if debug is enabled
+		if tm.config.Debug && (epoch == 0 || epoch == epochs-1) {
+			fmt.Printf("\nState summary after epoch %d:\n", epoch+1)
+			tm.printStateSummary()
+		}
 	}
 
 	return nil
+}
+
+// printStateSummary prints a summary of the current state distribution
+func (tm *TsetlinMachine) printStateSummary() {
+	// Calculate sum of states
+	var totalSum int
+	histogram := make([]int, 5) // 5 bins: 0-20, 21-40, 41-60, 61-80, 81-100
+
+	for _, clauseStates := range tm.states {
+		for _, state := range clauseStates {
+			totalSum += state
+			// Add to appropriate histogram bin
+			bin := state / 20
+			if bin > 4 {
+				bin = 4
+			}
+			histogram[bin]++
+		}
+	}
+
+	// Print summary
+	fmt.Printf("Total states sum: %d\n", totalSum)
+	fmt.Printf("State distribution:\n")
+	fmt.Printf("  0-20:  %d states\n", histogram[0])
+	fmt.Printf(" 21-40:  %d states\n", histogram[1])
+	fmt.Printf(" 41-60:  %d states\n", histogram[2])
+	fmt.Printf(" 61-80:  %d states\n", histogram[3])
+	fmt.Printf(" 81-100: %d states\n", histogram[4])
 }
 
 // canSkipClause checks if a clause can be skipped based on interested features.
@@ -165,6 +205,37 @@ func (tm *TsetlinMachine) calculateScore(input []float64, target int) float64 {
 	return score
 }
 
+// calculateScoreReadOnly calculates the score for a given input with feature-based clause skipping, without mutating any state.
+func (tm *TsetlinMachine) calculateScoreReadOnly(input []float64) float64 {
+	// Create input feature set using bitwise operations
+	var inputFeatures uint64
+	for i, val := range input {
+		if val == 1 {
+			inputFeatures |= 1 << i
+		}
+	}
+
+	score := 0.0
+	for i, clause := range tm.clauses {
+		// Skip clause if none of its interested features are in the input
+		if tm.canSkipClause(i, inputFeatures) {
+			continue
+		}
+
+		// Evaluate clause only if it can't be skipped
+		clauseOutput := tm.evaluateClause(input, clause)
+		// Use current MatchScore for weighting, but do not update it
+		// Normalize MatchScore to be between 0 and 1 for weighting
+		normalizedScore := tm.matchScores[i] / (tm.matchScores[i] + 1.0) // Sigmoid-like normalization
+		if tm.states[i][0] > tm.config.NStates/2 {
+			score += float64(clauseOutput) * normalizedScore
+		} else {
+			score -= float64(clauseOutput) * normalizedScore
+		}
+	}
+	return score
+}
+
 // evaluateClause evaluates a single clause for the given input.
 // It returns 1 if the clause is satisfied, 0 otherwise.
 func (tm *TsetlinMachine) evaluateClause(input []float64, clause []int) int {
@@ -187,6 +258,7 @@ func (tm *TsetlinMachine) evaluateClause(input []float64, clause []int) int {
 // updateStates updates the states of the automata based on feedback.
 // It implements Type I and Type II feedback mechanisms for learning.
 func (tm *TsetlinMachine) updateStates(input []float64, target int, score float64) {
+	updates := 0
 	// Type I feedback
 	if (target == 1 && score < tm.config.Threshold) || (target == 0 && score > -tm.config.Threshold) {
 		for i, clause := range tm.clauses {
@@ -195,9 +267,17 @@ func (tm *TsetlinMachine) updateStates(input []float64, target int, score float6
 				for j := range clause {
 					if tm.randSource.Float64() < 1.0/tm.config.S {
 						if input[j] == 1 {
+							old := tm.states[i][j]
 							tm.states[i][j] = min(tm.states[i][j]+1, tm.config.NStates)
+							if tm.states[i][j] != old {
+								updates++
+							}
 						} else {
+							old := tm.states[i][j]
 							tm.states[i][j] = max(tm.states[i][j]-1, 1)
+							if tm.states[i][j] != old {
+								updates++
+							}
 						}
 					}
 				}
@@ -212,11 +292,19 @@ func (tm *TsetlinMachine) updateStates(input []float64, target int, score float6
 			if clauseOutput == 1 {
 				for j := range clause {
 					if tm.randSource.Float64() < 1.0/tm.config.S {
+						old := tm.states[i][j]
 						tm.states[i][j] = max(tm.states[i][j]-1, 1)
+						if tm.states[i][j] != old {
+							updates++
+						}
 					}
 				}
 			}
 		}
+	}
+
+	if tm.config.Debug && updates > 0 {
+		fmt.Printf("updateStates: %d state updates in this call\n", updates)
 	}
 }
 
@@ -427,4 +515,32 @@ func (tm *TsetlinMachine) CalculateScore(input []float64, target int) float64 {
 // It evaluates a single clause for the given input.
 func (tm *TsetlinMachine) EvaluateClause(input []float64, clause []int) int {
 	return tm.evaluateClause(input, clause)
+}
+
+// PrintStateInfo prints information about the current state of the machine
+func (tm *TsetlinMachine) PrintStateInfo() {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	var totalSum int
+	histogram := make([]int, 5) // 5 bins: 0-20, 21-40, 41-60, 61-80, 81-100
+
+	for _, clauseStates := range tm.states {
+		for _, state := range clauseStates {
+			totalSum += state
+			bin := state / 20
+			if bin > 4 {
+				bin = 4
+			}
+			histogram[bin]++
+		}
+	}
+
+	fmt.Printf("Total states sum: %d\n", totalSum)
+	fmt.Printf("State distribution:\n")
+	fmt.Printf("  0-20:  %d states\n", histogram[0])
+	fmt.Printf(" 21-40:  %d states\n", histogram[1])
+	fmt.Printf(" 41-60:  %d states\n", histogram[2])
+	fmt.Printf(" 61-80:  %d states\n", histogram[3])
+	fmt.Printf(" 81-100: %d states\n", histogram[4])
 }

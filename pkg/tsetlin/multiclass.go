@@ -245,3 +245,11 @@ func (mctm *MultiClassTsetlinMachine) GetActiveClauses(input []float64) [][]Clau
 
 	return info
 }
+
+// PrintStateInfo prints information about the current state of all machines
+func (mctm *MultiClassTsetlinMachine) PrintStateInfo() {
+	for classIdx, machine := range mctm.machines {
+		fmt.Printf("\nClass %d state information:\n", classIdx)
+		machine.PrintStateInfo()
+	}
+}

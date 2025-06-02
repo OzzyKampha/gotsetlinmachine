@@ -301,7 +301,7 @@ func (tm *TsetlinMachine) GetActiveClauses(input []float64) [][]ClauseInfo {
 	return info
 }
 
-// Helper functions
+// min returns the smaller of two integers
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -309,6 +309,7 @@ func min(a, b int) int {
 	return b
 }
 
+// max returns the larger of two integers
 func max(a, b int) int {
 	if a > b {
 		return a

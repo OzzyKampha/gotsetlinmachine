@@ -85,7 +85,6 @@ func (mctm *MultiClassTsetlinMachine) Fit(X [][]float64, y []int, epochs int) er
 	}
 
 	// Train each binary classifier in parallel
-	var wg sync.WaitGroup
 	workerChan := make(chan int, runtime.NumCPU())
 	for i := 0; i < runtime.NumCPU(); i++ {
 		workerChan <- i
@@ -93,19 +92,19 @@ func (mctm *MultiClassTsetlinMachine) Fit(X [][]float64, y []int, epochs int) er
 
 	for class := 0; class < mctm.config.NumClasses; class++ {
 		class := class // Create new variable for goroutine
-		wg.Add(1)
+		mctm.wg.Add(1)
 		go func() {
-			defer wg.Done()
+			defer mctm.wg.Done()
 			<-workerChan                       // Get worker from pool
 			defer func() { workerChan <- 0 }() // Return worker to pool
 
 			if err := mctm.machines[class].Fit(X, binaryLabels[class], epochs); err != nil {
 				// Note: In a real implementation, you might want to handle these errors differently
-				fmt.Printf("Warning: Error training class %d: %v\n", class, err)
+				fmt.Printf("warning: error training class %d: %v\n", class, err)
 			}
 		}()
 	}
-	wg.Wait()
+	mctm.wg.Wait()
 
 	return nil
 }
@@ -120,7 +119,6 @@ func (mctm *MultiClassTsetlinMachine) Predict(input []float64) (PredictionResult
 
 	// Get scores from each binary classifier in parallel
 	scores := make([]float64, mctm.config.NumClasses)
-	var wg sync.WaitGroup
 	workerChan := make(chan int, runtime.NumCPU())
 	for i := 0; i < runtime.NumCPU(); i++ {
 		workerChan <- i
@@ -128,20 +126,21 @@ func (mctm *MultiClassTsetlinMachine) Predict(input []float64) (PredictionResult
 
 	for class := 0; class < mctm.config.NumClasses; class++ {
 		class := class // Create new variable for goroutine
-		<-workerChan   // Get worker from pool
+		mctm.wg.Add(1)
+		<-workerChan // Get worker from pool
 		go func() {
-			defer wg.Done()
+			defer mctm.wg.Done()
 			defer func() { workerChan <- 0 }() // Return worker to pool
 
 			result, err := mctm.machines[class].Predict(input)
 			if err != nil {
-				fmt.Printf("Warning: Error predicting class %d: %v\n", class, err)
+				fmt.Printf("warning: error predicting class %d: %v\n", class, err)
 				return
 			}
 			scores[class] = result.Votes[0] // Use positive class score
 		}()
 	}
-	wg.Wait()
+	mctm.wg.Wait()
 
 	// Find the class with the highest score
 	maxScore := scores[0]
@@ -226,7 +225,6 @@ func (mctm *MultiClassTsetlinMachine) GetActiveClauses(input []float64) [][]Clau
 	}
 
 	info := make([][]ClauseInfo, mctm.config.NumClasses)
-	var wg sync.WaitGroup
 	workerChan := make(chan int, runtime.NumCPU())
 	for i := 0; i < runtime.NumCPU(); i++ {
 		workerChan <- i
@@ -234,16 +232,16 @@ func (mctm *MultiClassTsetlinMachine) GetActiveClauses(input []float64) [][]Clau
 
 	for class := 0; class < mctm.config.NumClasses; class++ {
 		class := class
-		wg.Add(1)
+		mctm.wg.Add(1)
 		go func() {
-			defer wg.Done()
+			defer mctm.wg.Done()
 			<-workerChan
 			defer func() { workerChan <- 0 }()
 
 			info[class] = mctm.machines[class].GetActiveClauses(input)[0]
 		}()
 	}
-	wg.Wait()
+	mctm.wg.Wait()
 
 	return info
 }

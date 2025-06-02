@@ -60,8 +60,8 @@ func TestClauseSkipping(t *testing.T) {
 		{
 			name:          "All features one",
 			input:         []float64{1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-			expectedSkips: 0,  // Should evaluate all clauses
-			expectedScore: -1, // Score depends on clause states
+			expectedSkips: 0,    // Should evaluate all clauses
+			expectedScore: -0.5, // Score depends on clause states and MatchScore normalization
 			description:   "Input with all ones should evaluate all clauses",
 		},
 	}

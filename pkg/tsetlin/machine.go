@@ -153,11 +153,13 @@ func (tm *TsetlinMachine) calculateScore(input []float64, target int) float64 {
 			tm.momentums[i] *= 0.8   // Faster decay for inactive clauses
 		}
 
-		// Add to score based on clause state
+		// Add to score based on clause state and MatchScore
+		// Normalize MatchScore to be between 0 and 1 for weighting
+		normalizedScore := tm.matchScores[i] / (tm.matchScores[i] + 1.0) // Sigmoid-like normalization
 		if tm.states[i][0] > tm.config.NStates/2 {
-			score += float64(clauseOutput)
+			score += float64(clauseOutput) * normalizedScore
 		} else {
-			score -= float64(clauseOutput)
+			score -= float64(clauseOutput) * normalizedScore
 		}
 	}
 	return score

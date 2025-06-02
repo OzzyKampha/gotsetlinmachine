@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"math"
 	"testing"
 
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
@@ -167,4 +168,73 @@ func BenchmarkMatchScoreAndMomentum(b *testing.B) {
 			b.Fatalf("Failed to predict: %v", err)
 		}
 	}
+}
+
+func TestMatchScoreWeighting(t *testing.T) {
+	// Create a small TM with 2 features and 2 clauses
+	config := tsetlin.Config{
+		NumFeatures: 2,
+		NumClauses:  2,
+		NumLiterals: 2,
+		NStates:     100,
+		S:           3.9,
+		Threshold:   15,
+		RandomSeed:  42,
+	}
+
+	tm, err := tsetlin.NewTsetlinMachine(config)
+	if err != nil {
+		t.Fatalf("Failed to create Tsetlin Machine: %v", err)
+	}
+
+	// Train the model to build up MatchScores
+	// Use repeated patterns to build up different MatchScores
+	trainingData := [][]float64{
+		{1, 1}, // Pattern 1
+		{1, 1}, // Pattern 1
+		{1, 1}, // Pattern 1
+		{1, 1}, // Pattern 1
+		{1, 1}, // Pattern 1
+		{0, 0}, // Pattern 2
+		{0, 0}, // Pattern 2
+	}
+	labels := []int{1, 1, 1, 1, 1, 0, 0}
+
+	err = tm.Fit(trainingData, labels, 10)
+	if err != nil {
+		t.Fatalf("Failed to train model: %v", err)
+	}
+
+	// Get clause info to verify MatchScores
+	clauseInfo := tm.GetClauseInfo()[0]
+
+	// Test input that matches both clauses
+	input := []float64{1, 1}
+
+	// Get prediction
+	result, err := tm.Predict(input)
+	if err != nil {
+		t.Fatalf("Failed to get prediction: %v", err)
+	}
+
+	// Calculate expected weighted score based on MatchScores from clause info
+	expectedWeight0 := clauseInfo[0].MatchScore / (clauseInfo[0].MatchScore + 1.0)
+	expectedWeight1 := clauseInfo[1].MatchScore / (clauseInfo[1].MatchScore + 1.0)
+	expectedScore := expectedWeight0 + expectedWeight1
+
+	// Verify the score is weighted correctly
+	if math.Abs(result.Margin*float64(config.NumClauses)-expectedScore) > 0.01 {
+		t.Errorf("Expected weighted score %v, got %v", expectedScore, result.Margin*float64(config.NumClauses))
+	}
+
+	// Verify confidence reflects the weighted contribution
+	if result.Confidence < 0.5 {
+		t.Errorf("Expected high confidence due to weighted contributions, got %v", result.Confidence)
+	}
+
+	// Log the details for inspection
+	t.Logf("Clause 0: MatchScore=%.2f, Weight=%.3f", clauseInfo[0].MatchScore, expectedWeight0)
+	t.Logf("Clause 1: MatchScore=%.2f, Weight=%.3f", clauseInfo[1].MatchScore, expectedWeight1)
+	t.Logf("Final score: %.3f", result.Margin*float64(config.NumClauses))
+	t.Logf("Confidence: %.3f", result.Confidence)
 }

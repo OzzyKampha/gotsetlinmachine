@@ -31,6 +31,9 @@ pkg/                  # Public library code
 - Clause analysis and visualization
 - Debug logging capabilities
 - Easy-to-use API
+- **MatchScore and Momentum tracking for each clause**
+- **Weighted voting based on clause reliability (MatchScore)**
+- **Confidence calculation combines margin, clause reliability, and momentum**
 
 ## Installation
 
@@ -181,6 +184,35 @@ Performance characteristics:
 - Use `GetClauseInfo()` to analyze learned patterns
 - Use `GetActiveClauses()` to understand which clauses are active for a given input
 - Monitor clause skipping behavior with `CanSkipClause()`
+
+## MatchScore, Momentum, and Confidence Weighting
+
+### MatchScore
+- Each clause tracks a `MatchScore` that increases when it matches the input and decays otherwise.
+- Clauses with higher MatchScores are considered more reliable, as they have matched patterns more consistently over time.
+
+### Momentum
+- Each clause also tracks a `Momentum` value, which reflects how consistently it has been active recently.
+- High momentum means a clause has been firing frequently in recent predictions.
+
+### Weighted Voting
+- When making predictions, each clause's vote is **weighted** by its normalized MatchScore:
+  - `weight = MatchScore / (MatchScore + 1)`
+- Clauses with higher MatchScores have more influence on the final prediction, while unreliable or new clauses have less.
+
+### Confidence Calculation
+- The model's confidence in its prediction is a blend of:
+  - The margin (difference between positive and negative votes, now weighted)
+  - The average momentum of active clauses
+  - The average MatchScore of active clauses
+- The formula is:
+  - `confidence = clamp(0.5*margin + 0.25*activeMomentum + 0.25*avgMatchScore, 0, 1)`
+- This ensures that confidence reflects both the current evidence and the historical reliability of the clauses involved.
+
+### Why does this matter?
+- The model is more robust, as it trusts clauses that have proven themselves over time.
+- Confidence values are more meaningful, as they account for both the strength and reliability of the evidence.
+- You can analyze clause reliability and activity using `GetClauseInfo()`.
 
 ## License
 

@@ -27,4 +27,4 @@ go.work
 .DS_Store
 Thumbs.db 
 cmd*
-examples/mnist/data*
+examples/mnist/data/*

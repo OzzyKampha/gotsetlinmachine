@@ -85,8 +85,9 @@ func (mctm *MultiClassTsetlinMachine) Fit(X [][]float64, y []int, epochs int) er
 	}
 
 	// Train each binary classifier in parallel
-	workerChan := make(chan int, runtime.NumCPU())
-	for i := 0; i < runtime.NumCPU(); i++ {
+	numWorkers := runtime.NumCPU() * 2
+	workerChan := make(chan int, numWorkers)
+	for i := 0; i < numWorkers; i++ {
 		workerChan <- i
 	}
 

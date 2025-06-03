@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"runtime"
 	"sync"
 )
 
@@ -18,11 +19,16 @@ type TsetlinMachine struct {
 	states     [][]int
 	mu         sync.Mutex
 	randSource *rand.Rand
+	randMu     sync.Mutex // Add mutex for random number generator
 	// Add interested features map for each clause
 	interestedFeatures []map[int]struct{}
 	// Add MatchScore and Momentum tracking for each clause
 	matchScores []float64
 	momentums   []float64
+	// Add training lock
+	isTraining bool
+	// Add print mutex
+	printMu sync.Mutex
 }
 
 // NewTsetlinMachine creates a new binary Tsetlin Machine.
@@ -57,19 +63,43 @@ func NewTsetlinMachine(config Config) (*TsetlinMachine, error) {
 		tm.clauses[i] = make([]int, config.NumLiterals)
 		tm.states[i] = make([]int, config.NumLiterals)
 		tm.interestedFeatures[i] = make(map[int]struct{})
-		tm.matchScores[i] = 0.0 // Initialize MatchScore to 0
-		tm.momentums[i] = 0.0   // Initialize Momentum to 0
+		tm.matchScores[i] = 1.0 // Initialize MatchScore to 1.0
+		tm.momentums[i] = 0.5   // Initialize Momentum to 0.5
 
+		// Ensure each clause has at least one active literal
+		activeLiterals := 0
 		for j := range tm.clauses[i] {
-			// Randomly initialize literals
-			tm.clauses[i][j] = tm.randSource.Intn(2)
-			// Initialize states to middle of range
-			tm.states[i][j] = config.NStates / 2
-
-			// Add feature to interested features if it's used in the clause
-			if tm.clauses[i][j] != 0 {
-				tm.interestedFeatures[i][j] = struct{}{}
+			// Randomly initialize literals with higher probability of being active
+			if tm.randSource.Float64() < 0.7 { // 70% chance of being active
+				tm.clauses[i][j] = tm.randSource.Intn(2)
+				if tm.clauses[i][j] != 0 {
+					activeLiterals++
+					tm.interestedFeatures[i][j] = struct{}{}
+				}
+			} else {
+				tm.clauses[i][j] = 0
 			}
+
+			// Initialize states with more variation
+			if tm.clauses[i][j] != 0 {
+				// For active literals, initialize states more towards the extremes
+				if tm.randSource.Float64() < 0.5 {
+					tm.states[i][j] = tm.randSource.Intn(config.NStates/4) + 1 // Lower states
+				} else {
+					tm.states[i][j] = tm.randSource.Intn(config.NStates/4) + 3*config.NStates/4 // Higher states
+				}
+			} else {
+				// For inactive literals, initialize to middle
+				tm.states[i][j] = config.NStates / 2
+			}
+		}
+
+		// If no active literals, force at least one
+		if activeLiterals == 0 {
+			j := tm.randSource.Intn(config.NumLiterals)
+			tm.clauses[i][j] = 1
+			tm.interestedFeatures[i][j] = struct{}{}
+			tm.states[i][j] = tm.randSource.Intn(config.NStates/4) + 3*config.NStates/4
 		}
 	}
 
@@ -92,7 +122,18 @@ func (tm *TsetlinMachine) Fit(X [][]float64, y []int, epochs int) error {
 	}
 
 	tm.mu.Lock()
-	defer tm.mu.Unlock()
+	if tm.isTraining {
+		tm.mu.Unlock()
+		return fmt.Errorf("training already in progress")
+	}
+	tm.isTraining = true
+	tm.mu.Unlock()
+
+	defer func() {
+		tm.mu.Lock()
+		tm.isTraining = false
+		tm.mu.Unlock()
+	}()
 
 	// Print initial state summary
 	if tm.config.Debug {
@@ -101,13 +142,74 @@ func (tm *TsetlinMachine) Fit(X [][]float64, y []int, epochs int) error {
 	}
 
 	for epoch := 0; epoch < epochs; epoch++ {
-		for i, input := range X {
-			// Get prediction for current input
-			score := tm.calculateScore(input, y[i])
+		correct := 0
+		total := len(X)
 
-			// Update states based on feedback
-			tm.updateStates(input, y[i], score)
+		// Create worker pool for parallel processing
+		numWorkers := runtime.NumCPU() * 2
+		workerChan := make(chan int, numWorkers)
+		for i := 0; i < numWorkers; i++ {
+			workerChan <- i
 		}
+
+		// First pass: update states in parallel
+		var wg sync.WaitGroup
+		for i := 0; i < len(X); i++ {
+			i := i // Create new variable for goroutine
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-workerChan
+				defer func() { workerChan <- 0 }()
+
+				// Get prediction for current input
+				score := tm.calculateScore(X[i], y[i])
+				// Update states based on feedback
+				tm.updateStates(X[i], y[i], score)
+			}()
+		}
+		wg.Wait()
+
+		// Second pass: calculate accuracy in parallel
+		correctChan := make(chan int, numWorkers)
+		for i := 0; i < len(X); i++ {
+			i := i // Create new variable for goroutine
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-workerChan
+				defer func() { workerChan <- 0 }()
+
+				score := tm.calculateScore(X[i], y[i])
+				predictedClass := 0
+				if score < 0 {
+					predictedClass = 1
+				}
+				if predictedClass == y[i] {
+					correctChan <- 1
+				} else {
+					correctChan <- 0
+				}
+			}()
+		}
+
+		// Collect results
+		go func() {
+			wg.Wait()
+			close(correctChan)
+		}()
+
+		// Count correct predictions
+		for c := range correctChan {
+			correct += c
+		}
+
+		// Calculate and print accuracy for this epoch with print mutex
+		accuracy := float64(correct) / float64(total)
+		tm.printMu.Lock()
+		fmt.Printf("Epoch %d/%d - Accuracy: %.2f%% (%d/%d)\n",
+			epoch+1, epochs, accuracy*100, correct, total)
+		tm.printMu.Unlock()
 
 		// Print state summary after each epoch if debug is enabled
 		if tm.config.Debug && (epoch == 0 || epoch == epochs-1) {
@@ -172,6 +274,8 @@ func (tm *TsetlinMachine) calculateScore(input []float64, target int) float64 {
 	}
 
 	score := 0.0
+	activeClauses := 0
+
 	for i, clause := range tm.clauses {
 		// Skip clause if none of its interested features are in the input
 		if tm.canSkipClause(i, inputFeatures) {
@@ -183,25 +287,26 @@ func (tm *TsetlinMachine) calculateScore(input []float64, target int) float64 {
 
 		// Evaluate clause only if it can't be skipped
 		clauseOutput := tm.evaluateClause(input, clause)
+
 		if clauseOutput == 1 {
 			// Update MatchScore and Momentum for matched clauses
-			tm.matchScores[i] += 1.0 // Increase MatchScore
-			tm.momentums[i] += 0.5   // Increase Momentum
+			tm.matchScores[i] = 0.9*tm.matchScores[i] + 0.1 // Decay + small increment
+			tm.momentums[i] = 0.8*tm.momentums[i] + 0.2     // Faster decay + increment
+
+			// Add raw score based on clause state
+			if tm.states[i][0] > tm.config.NStates/2 {
+				score += 1.0
+			} else {
+				score -= 1.0
+			}
+			activeClauses++
 		} else {
 			// Update MatchScore and Momentum for unmatched clauses
 			tm.matchScores[i] *= 0.9 // Decay MatchScore
 			tm.momentums[i] *= 0.8   // Faster decay for inactive clauses
 		}
-
-		// Add to score based on clause state and MatchScore
-		// Normalize MatchScore to be between 0 and 1 for weighting
-		normalizedScore := tm.matchScores[i] / (tm.matchScores[i] + 1.0) // Sigmoid-like normalization
-		if tm.states[i][0] > tm.config.NStates/2 {
-			score += float64(clauseOutput) * normalizedScore
-		} else {
-			score -= float64(clauseOutput) * normalizedScore
-		}
 	}
+
 	return score
 }
 
@@ -239,42 +344,103 @@ func (tm *TsetlinMachine) calculateScoreReadOnly(input []float64) float64 {
 // evaluateClause evaluates a single clause for the given input.
 // It returns 1 if the clause is satisfied, 0 otherwise.
 func (tm *TsetlinMachine) evaluateClause(input []float64, clause []int) int {
-	// Early exit if clause is empty
-	if len(clause) == 0 {
-		return 1
-	}
+	// Count active literals
+	activeLiterals := 0
+	matches := 0
 
 	// Check each literal against input
 	for j, literal := range clause {
-		// If literal is 1 and input is 0, or literal is 0 and input is 1, clause is false
-		if (literal == 1 && input[j] == 0) || (literal == 0 && input[j] == 1) {
-			return 0
+		if literal != 0 { // Count non-zero literals as active
+			activeLiterals++
+			// If literal is 1 and input is 1, or literal is 0 and input is 0, it's a match
+			if (literal == 1 && input[j] == 1) || (literal == 0 && input[j] == 0) {
+				matches++
+			}
 		}
 	}
 
-	return 1
+	// Require at least one active literal
+	if activeLiterals == 0 {
+		return 0
+	}
+
+	// Calculate match ratio
+	matchRatio := float64(matches) / float64(activeLiterals)
+
+	// Return 1 if match ratio is above threshold (e.g., 0.7)
+	if matchRatio >= 0.7 {
+		return 1
+	}
+	return 0
 }
 
 // updateStates updates the states of the automata based on feedback.
 // It implements Type I and Type II feedback mechanisms for learning.
 func (tm *TsetlinMachine) updateStates(input []float64, target int, score float64) {
 	updates := 0
-	// Type I feedback
+
+	// Type I feedback - when prediction is incorrect
 	if (target == 1 && score < tm.config.Threshold) || (target == 0 && score > -tm.config.Threshold) {
 		for i, clause := range tm.clauses {
 			clauseOutput := tm.evaluateClause(input, clause)
-			if clauseOutput == 1 {
-				for j := range clause {
-					if tm.randSource.Float64() < 1.0/tm.config.S {
-						if input[j] == 1 {
+
+			// Update states for both matching and non-matching clauses
+			for j := range clause {
+				tm.randMu.Lock()
+				shouldUpdate := tm.randSource.Float64() < 1.0/tm.config.S
+				tm.randMu.Unlock()
+
+				if shouldUpdate {
+					if clauseOutput == 1 {
+						// For matching clauses
+						if target == 1 {
+							// Positive feedback for positive examples
 							old := tm.states[i][j]
-							tm.states[i][j] = min(tm.states[i][j]+1, tm.config.NStates)
+							// More conservative state updates
+							if tm.states[i][j] < tm.config.NStates/2 {
+								tm.states[i][j] = min(tm.states[i][j]+1, tm.config.NStates/2)
+							} else {
+								tm.states[i][j] = min(tm.states[i][j]+1, tm.config.NStates)
+							}
 							if tm.states[i][j] != old {
 								updates++
 							}
 						} else {
+							// Negative feedback for negative examples
 							old := tm.states[i][j]
-							tm.states[i][j] = max(tm.states[i][j]-1, 1)
+							// More conservative state updates
+							if tm.states[i][j] > tm.config.NStates/2 {
+								tm.states[i][j] = max(tm.states[i][j]-1, tm.config.NStates/2)
+							} else {
+								tm.states[i][j] = max(tm.states[i][j]-1, 1)
+							}
+							if tm.states[i][j] != old {
+								updates++
+							}
+						}
+					} else {
+						// For non-matching clauses
+						if target == 0 {
+							// Positive feedback for negative examples
+							old := tm.states[i][j]
+							// More conservative state updates
+							if tm.states[i][j] < tm.config.NStates/2 {
+								tm.states[i][j] = min(tm.states[i][j]+1, tm.config.NStates/2)
+							} else {
+								tm.states[i][j] = min(tm.states[i][j]+1, tm.config.NStates)
+							}
+							if tm.states[i][j] != old {
+								updates++
+							}
+						} else {
+							// Negative feedback for positive examples
+							old := tm.states[i][j]
+							// More conservative state updates
+							if tm.states[i][j] > tm.config.NStates/2 {
+								tm.states[i][j] = max(tm.states[i][j]-1, tm.config.NStates/2)
+							} else {
+								tm.states[i][j] = max(tm.states[i][j]-1, 1)
+							}
 							if tm.states[i][j] != old {
 								updates++
 							}
@@ -282,18 +448,36 @@ func (tm *TsetlinMachine) updateStates(input []float64, target int, score float6
 					}
 				}
 			}
+
+			// Update match score with decay
+			if clauseOutput == 1 {
+				tm.matchScores[i] = 0.95*tm.matchScores[i] + 0.05 // Slower decay + smaller increment
+				tm.momentums[i] = 0.9*tm.momentums[i] + 0.1       // Slower decay + smaller increment
+			} else {
+				tm.matchScores[i] *= 0.95 // Slower decay for non-matching
+				tm.momentums[i] *= 0.9    // Slower decay for non-matching
+			}
 		}
 	}
 
-	// Type II feedback
+	// Type II feedback - when prediction is correct
 	if (target == 1 && score >= tm.config.Threshold) || (target == 0 && score <= -tm.config.Threshold) {
 		for i, clause := range tm.clauses {
 			clauseOutput := tm.evaluateClause(input, clause)
 			if clauseOutput == 1 {
 				for j := range clause {
-					if tm.randSource.Float64() < 1.0/tm.config.S {
+					tm.randMu.Lock()
+					shouldUpdate := tm.randSource.Float64() < 1.0/tm.config.S
+					tm.randMu.Unlock()
+
+					if shouldUpdate {
 						old := tm.states[i][j]
-						tm.states[i][j] = max(tm.states[i][j]-1, 1)
+						// More conservative state updates for Type II feedback
+						if tm.states[i][j] > tm.config.NStates/2 {
+							tm.states[i][j] = max(tm.states[i][j]-1, tm.config.NStates/2)
+						} else {
+							tm.states[i][j] = max(tm.states[i][j]-1, 1)
+						}
 						if tm.states[i][j] != old {
 							updates++
 						}
@@ -301,10 +485,6 @@ func (tm *TsetlinMachine) updateStates(input []float64, target int, score float6
 				}
 			}
 		}
-	}
-
-	if tm.config.Debug && updates > 0 {
-		fmt.Printf("updateStates: %d state updates in this call\n", updates)
 	}
 }
 
@@ -316,13 +496,16 @@ func (tm *TsetlinMachine) Predict(input []float64) (PredictionResult, error) {
 			tm.config.NumFeatures, len(input))
 	}
 
+	// Calculate raw score
 	score := tm.calculateScore(input, 1)
+
+	// Determine predicted class
 	predictedClass := 0
 	if score < 0 {
 		predictedClass = 1
 	}
 
-	// Calculate confidence using MatchScore and Momentum
+	// Calculate confidence using raw score and active clauses
 	var activeMomentum float64
 	var avgMatchScore float64
 	activeClauses := 0
@@ -347,20 +530,40 @@ func (tm *TsetlinMachine) Predict(input []float64) (PredictionResult, error) {
 		}
 	}
 
-	// Calculate final confidence
-	margin := math.Abs(score) / float64(tm.config.NumClauses)
+	// Calculate margin as absolute score
+	margin := math.Abs(score)
+
+	// Calculate confidence based on margin and active clauses
+	confidence := margin / float64(tm.config.NumClauses)
 	if activeClauses > 0 {
-		activeMomentum /= float64(activeClauses)
-		avgMatchScore /= float64(activeClauses)
+		confidence = math.Max(confidence, float64(activeClauses)/float64(tm.config.NumClauses))
 	}
 
-	// Weighted sum of margin, momentum, and match score
-	confidence := 0.5*margin + 0.3*activeMomentum + 0.2*avgMatchScore
-	// Clamp confidence between 0 and 1
-	confidence = math.Max(0.0, math.Min(1.0, confidence))
+	// Create votes array with raw scores, ensuring no flooring
+	votes := make([]float64, 2)
+	if predictedClass == 0 {
+		votes[0] = score  // Keep raw score for class 0
+		votes[1] = -score // Negated score for class 1
+	} else {
+		votes[0] = -score // Negated score for class 0
+		votes[1] = score  // Keep raw score for class 1
+	}
+
+	// Ensure votes are not zero if there are active clauses
+	if activeClauses > 0 && math.Abs(votes[0]) < 1e-10 && math.Abs(votes[1]) < 1e-10 {
+		// If votes are too small, scale them up based on active clauses
+		scale := float64(activeClauses) / float64(tm.config.NumClauses)
+		if predictedClass == 0 {
+			votes[0] = scale
+			votes[1] = -scale
+		} else {
+			votes[0] = -scale
+			votes[1] = scale
+		}
+	}
 
 	return PredictionResult{
-		Votes:          []float64{math.Abs(score), -math.Abs(score)},
+		Votes:          votes,
 		PredictedClass: predictedClass,
 		Margin:         margin,
 		Confidence:     confidence,

@@ -12,12 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Detailed performance metrics for training and inference
 - Clause analysis functionality for model interpretability
 - Confidence scores in prediction results
+- Bit-packed optimization for improved performance
+- New noisy XOR example with training and test datasets
+- Parallel processing with worker pools for training
 
 ### Changed
 - Unified constructor to use `NewMultiClassTsetlinMachine` as main entry point
 - Updated all examples to use the new constructor
 - Improved documentation and code comments
 - Enhanced error handling in prediction methods
+- Optimized clause skipping for better performance
+- Refactored machine.go for better code organization
+- Removed sharded inference in favor of bit-packed optimization
 
 ### Performance
 - Training speed:
@@ -33,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Constructor type mismatch in examples
 - Prediction return value handling in tests
 - Documentation consistency across package
+- Memory efficiency with bit-packed optimization
 
 ## [0.1.0] - 2024-03-19
 

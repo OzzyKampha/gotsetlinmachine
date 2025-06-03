@@ -22,6 +22,7 @@ func TestClauseSkipping(t *testing.T) {
 	config.S = 3.9
 	config.NStates = 100
 	config.RandomSeed = 42
+	config.Debug = true
 
 	// Create machine
 	tm := tsetlin.NewBitPackedTsetlinMachine(config)

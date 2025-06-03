@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bit-packed optimization for improved performance
 - New noisy XOR example with training and test datasets
 - Parallel processing with worker pools for training
+- MNIST example with data loading and preprocessing
+- Training and testing pipeline for MNIST dataset
 
 ### Changed
 - Unified constructor to use `NewMultiClassTsetlinMachine` as main entry point

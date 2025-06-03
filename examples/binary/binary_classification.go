@@ -25,13 +25,8 @@ func RunBinaryExample() {
 	config.Threshold = 5.0 // Classification threshold
 	config.S = 3.9         // Specificity parameter
 	config.NStates = 100   // Number of states for the automata
+	config.NumClasses = 2  // Binary classification
 	config.RandomSeed = 42 // For reproducibility
-
-	// Create binary Tsetlin Machine
-	machine, err := tsetlin.NewTsetlinMachine(config)
-	if err != nil {
-		log.Fatalf("Failed to create Tsetlin Machine: %v", err)
-	}
 
 	// XOR training data
 	X := [][]float64{
@@ -42,6 +37,12 @@ func RunBinaryExample() {
 	}
 	y := []int{0, 1, 1, 0}
 
+	// Create multiclass Tsetlin Machine
+	machine, err := tsetlin.NewMultiClassTsetlinMachine(config)
+	if err != nil {
+		log.Fatalf("Failed to create Multiclass Tsetlin Machine: %v", err)
+	}
+
 	// Train the model
 	fmt.Println("Training the model...")
 	if err := machine.Fit(X, y, 100); err != nil {
@@ -51,33 +52,10 @@ func RunBinaryExample() {
 	// Test the model
 	fmt.Println("\nTesting the model:")
 	for i, input := range X {
-		result, err := machine.Predict(input)
-		if err != nil {
-			log.Printf("Error predicting for input %v: %v", input, err)
-			continue
-		}
-
-		probs, err := machine.PredictProba(input)
-		if err != nil {
-			log.Printf("Error getting probabilities for input %v: %v", input, err)
-			continue
-		}
-
+		prediction := machine.Predict(input)
 		fmt.Printf("Input: %v\n", input)
 		fmt.Printf("True class: %d\n", y[i])
-		fmt.Printf("Predicted class: %d\n", result.PredictedClass)
-		fmt.Printf("Confidence: %.2f\n", result.Confidence)
-		fmt.Printf("Probabilities: [%.3f, %.3f]\n", probs[0], probs[1])
-		fmt.Printf("Active clauses: %d\n", len(machine.GetActiveClauses(input)[0]))
+		fmt.Printf("Predicted class: %d\n", prediction)
 		fmt.Println()
-	}
-
-	// Get and print clause information
-	fmt.Println("Clause Information:")
-	clauseInfo := machine.GetClauseInfo()
-	for i, clause := range clauseInfo[0] {
-		fmt.Printf("Clause %d:\n", i)
-		fmt.Printf("  Literals: %v\n", clause.Literals)
-		fmt.Printf("  Is Positive: %v\n", clause.IsPositive)
 	}
 }

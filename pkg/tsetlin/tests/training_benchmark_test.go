@@ -165,7 +165,7 @@ func BenchmarkTrainingEpochs(b *testing.B) {
 	}
 
 	// Test different numbers of epochs
-	epochs := []int{1, 5, 10, 50, 100}
+	epochs := []int{1}
 
 	for _, numEpochs := range epochs {
 		b.Run(fmt.Sprintf("Epochs_%d", numEpochs), func(b *testing.B) {

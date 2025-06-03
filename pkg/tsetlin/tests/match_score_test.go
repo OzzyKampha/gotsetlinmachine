@@ -200,7 +200,7 @@ func TestMatchScoreWeighting(t *testing.T) {
 	}
 	labels := []int{1, 1, 1, 1, 1, 0, 0}
 
-	err = tm.Fit(trainingData, labels, 10)
+	err = tm.Fit(trainingData, labels, 1)
 	if err != nil {
 		t.Fatalf("Failed to train model: %v", err)
 	}

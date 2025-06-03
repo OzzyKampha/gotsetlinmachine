@@ -1,7 +1,7 @@
-// Package multiclass demonstrates multiclass classification using the Tsetlin Machine.
+// Package main demonstrates multiclass classification using the Tsetlin Machine.
 // This example shows how to use the Tsetlin Machine for pattern recognition
 // with multiple classes, using the one-vs-all approach.
-package multiclass
+package main
 
 import (
 	"fmt"
@@ -10,13 +10,7 @@ import (
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
 
-// RunMulticlassExample demonstrates multiclass classification using pattern recognition.
-// It shows how to:
-// 1. Configure a multiclass Tsetlin Machine
-// 2. Train it on a dataset with multiple classes
-// 3. Make predictions on both seen and unseen patterns
-// 4. Analyze the learned clauses for each class
-func RunMulticlassExample() {
+func main() {
 	// Create configuration for multiclass classification
 	config := tsetlin.DefaultConfig()
 	config.NumFeatures = 4  // Number of input features
@@ -53,10 +47,23 @@ func RunMulticlassExample() {
 	}
 	y := []int{0, 0, 0, 1, 1, 1, 2, 2, 2}
 
-	// Train the model
-	fmt.Println("Training the model...")
-	if err := machine.Fit(X, y, 100); err != nil {
-		log.Fatalf("Failed to train model: %v", err)
+	// Train the model one epoch at a time
+	epochs := 10
+	for epoch := 1; epoch <= epochs; epoch++ {
+		if err := machine.Fit(X, y, 1); err != nil {
+			log.Fatalf("Failed to train model: %v", err)
+		}
+
+		// Compute training accuracy
+		correct := 0
+		for i, input := range X {
+			pred := machine.Predict(input)
+			if pred == y[i] {
+				correct++
+			}
+		}
+		accuracy := float64(correct) / float64(len(X)) * 100
+		fmt.Printf("Epoch %d: Training accuracy = %.2f%%\n", epoch, accuracy)
 	}
 
 	// Test the model with both training and new patterns
@@ -70,35 +77,17 @@ func RunMulticlassExample() {
 
 	fmt.Println("\nTesting the model:")
 	for _, input := range testPatterns {
-		result, err := machine.Predict(input)
-		if err != nil {
-			log.Printf("Error predicting for input %v: %v", input, err)
-			continue
-		}
-
-		probs, err := machine.PredictProba(input)
-		if err != nil {
-			log.Printf("Error getting probabilities for input %v: %v", input, err)
-			continue
-		}
-
+		prediction := machine.Predict(input)
 		fmt.Printf("Input: %v\n", input)
-		fmt.Printf("Predicted class: %d\n", result.PredictedClass)
-		fmt.Printf("Confidence: %.2f\n", result.Confidence)
-		fmt.Printf("Probabilities: [%.3f, %.3f, %.3f]\n", probs[0], probs[1], probs[2])
-		fmt.Printf("Active clauses: %v\n", len(machine.GetActiveClauses(input)[0]))
+		fmt.Printf("Predicted class: %d\n", prediction)
 		fmt.Println()
 	}
+}
 
-	// Get and print clause information for each class
-	fmt.Println("Clause Information:")
-	clauseInfo := machine.GetClauseInfo()
-	for class := 0; class < config.NumClasses; class++ {
-		fmt.Printf("\nClass %d:\n", class)
-		for i, clause := range clauseInfo[class] {
-			fmt.Printf("  Clause %d:\n", i)
-			fmt.Printf("    Literals: %v\n", clause.Literals)
-			fmt.Printf("    Is Positive: %v\n", clause.IsPositive)
-		}
+// Helper function for min
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
+	return b
 }

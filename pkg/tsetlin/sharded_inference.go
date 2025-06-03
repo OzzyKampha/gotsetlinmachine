@@ -2,6 +2,7 @@ package tsetlin
 
 import (
 	"math"
+	"runtime"
 	"sync"
 )
 
@@ -12,91 +13,129 @@ type InferenceResult struct {
 	ClauseCounts []int
 }
 
-// ShardedInference performs inference by computing class scores in parallel, matching the standard multiclass inference logic
-func ShardedInference(tm *MultiClassTsetlinMachine, X []float64) (int, float64, []float64, []float64) {
-	numClasses := len(tm.machines)
+// ShardedInference represents a sharded inference system for multiclass Tsetlin Machines.
+type ShardedInference struct {
+	machines []*BitPackedTsetlinMachine
+	config   Config
+}
 
-	// Input validation: check input length
-	if len(X) != tm.machines[0].config.NumFeatures {
-		votes := make([]float64, numClasses)
-		matchScores := make([]float64, numClasses)
-		return -1, 0.0, votes, matchScores
+// NewShardedInference creates a new ShardedInference system.
+func NewShardedInference(machines []*BitPackedTsetlinMachine, config Config) *ShardedInference {
+	return &ShardedInference{
+		machines: machines,
+		config:   config,
 	}
+}
 
-	votes := make([]float64, numClasses)
-	matchScores := make([]float64, numClasses)
-	clauseCounts := make([]int, numClasses)
+// Predict returns the predicted class for the given input pattern.
+func (si *ShardedInference) Predict(input []float64) int {
+	bitInput := FromFloat64Slice(input)
+	scores := make([]int, len(si.machines))
+	for i, machine := range si.machines {
+		scores[i] = machine.PredictBitVec(bitInput)
+	}
+	maxScore := scores[0]
+	predictedClass := 0
+	for class := 1; class < len(scores); class++ {
+		if scores[class] > maxScore {
+			maxScore = scores[class]
+			predictedClass = class
+		}
+	}
+	return predictedClass
+}
+
+// PredictBatch returns the predicted classes for a batch of input patterns.
+func (si *ShardedInference) PredictBatch(X [][]float64) []int {
+	predictions := make([]int, len(X))
+	for i, input := range X {
+		predictions[i] = si.Predict(input)
+	}
+	return predictions
+}
+
+// PredictBatchParallel returns the predicted classes for a batch of input patterns in parallel.
+func (si *ShardedInference) PredictBatchParallel(X [][]float64) []int {
+	predictions := make([]int, len(X))
+	numWorkers := runtime.NumCPU() * 2
+	workerChan := make(chan int, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		workerChan <- i
+	}
 
 	var wg sync.WaitGroup
-	wg.Add(numClasses)
-
-	for classIdx, machine := range tm.machines {
-		go func(classIdx int, machine *TsetlinMachine) {
+	for i := 0; i < len(X); i++ {
+		i := i
+		wg.Add(1)
+		go func() {
 			defer wg.Done()
-
-			// Convert input to bit pattern for clause skipping
-			var inputFeatures uint64
-			for i, val := range X {
-				if val == 1 {
-					inputFeatures |= 1 << i
-				}
-			}
-
-			// Weighted voting from active clauses
-			activeClauses := 0
-			var avgMatchScore float64
-			voteSum := 0.0
-			for i := range machine.clauses {
-				if !machine.canSkipClause(i, inputFeatures) {
-					clauseOutput := machine.evaluateClause(X, machine.clauses[i])
-					if clauseOutput == 1 {
-						normScore := machine.matchScores[i] / (machine.matchScores[i] + 1.0)
-						voteSum += normScore
-						avgMatchScore += machine.matchScores[i]
-						activeClauses++
-					}
-				}
-			}
-
-			// Set weighted votes
-			votes[classIdx] = voteSum
-
-			// Calculate average match score
-			if activeClauses > 0 {
-				matchScores[classIdx] = avgMatchScore / float64(activeClauses)
-			}
-			clauseCounts[classIdx] = activeClauses
-		}(classIdx, machine)
+			<-workerChan
+			defer func() { workerChan <- 0 }()
+			predictions[i] = si.Predict(X[i])
+		}()
 	}
-
 	wg.Wait()
+	return predictions
+}
 
-	// Find the class with the highest votes
-	maxVotes := votes[0]
-	predictedClass := 0
-	secondHighestVotes := math.Inf(-1)
-	for i := 1; i < numClasses; i++ {
-		if votes[i] > maxVotes {
-			secondHighestVotes = maxVotes
-			maxVotes = votes[i]
-			predictedClass = i
-		} else if votes[i] > secondHighestVotes {
-			secondHighestVotes = votes[i]
-		}
+// PredictBatchParallelWithCallback returns the predicted classes for a batch of input patterns in parallel,
+// and calls the callback function for each prediction.
+func (si *ShardedInference) PredictBatchParallelWithCallback(X [][]float64, callback func(int, *BitPackedTsetlinMachine)) []int {
+	predictions := make([]int, len(X))
+	numWorkers := runtime.NumCPU() * 2
+	workerChan := make(chan int, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		workerChan <- i
 	}
 
-	// Calculate confidence based on vote margin
-	confidence := 0.0
-	if maxVotes > 0 {
-		margin := maxVotes - secondHighestVotes
-		maxPossibleVotes := float64(tm.machines[0].config.NumClauses)
-		confidence = margin / maxPossibleVotes
-		if confidence > 1.0 {
-			confidence = 1.0
-		}
+	var wg sync.WaitGroup
+	for i := 0; i < len(X); i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-workerChan
+			defer func() { workerChan <- 0 }()
+			predictions[i] = si.Predict(X[i])
+			callback(i, si.machines[predictions[i]])
+		}()
+	}
+	wg.Wait()
+	return predictions
+}
+
+// PredictBatchParallelWithCallbackAndError returns the predicted classes for a batch of input patterns in parallel,
+// and calls the callback function for each prediction, with error handling.
+func (si *ShardedInference) PredictBatchParallelWithCallbackAndError(X [][]float64, callback func(int, *BitPackedTsetlinMachine) error) ([]int, error) {
+	predictions := make([]int, len(X))
+	numWorkers := runtime.NumCPU() * 2
+	workerChan := make(chan int, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		workerChan <- i
 	}
 
-	return predictedClass, confidence, votes, matchScores
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var err error
+	for i := 0; i < len(X); i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-workerChan
+			defer func() { workerChan <- 0 }()
+			predictions[i] = si.Predict(X[i])
+			if err := callback(i, si.machines[predictions[i]]); err != nil {
+				mu.Lock()
+				if err == nil {
+					err = err
+				}
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	return predictions, err
 }
 
 // computeConfidence calculates the confidence score for the prediction

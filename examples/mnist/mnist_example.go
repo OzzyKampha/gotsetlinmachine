@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
@@ -21,10 +22,10 @@ func main() {
 	// Configure the Tsetlin Machine for multiclass classification
 	config := tsetlin.DefaultConfig()
 	config.NumFeatures = len(data.TrainX[0])
-	config.NumClasses = 10
+	config.NumClasses = 1000
 	config.NumClauses = 10
 	config.NumLiterals = len(data.TrainX[0])
-	config.Threshold = 5.0
+	config.Threshold = 50.0
 	config.S = 10.0
 	config.NStates = 100
 	config.RandomSeed = 42
@@ -37,10 +38,14 @@ func main() {
 
 	for i := 0; i < 10; i++ {
 		fmt.Printf("\nEpoch %d/%d\n", i+1, 10)
+
+		// Time the training phase
 		fmt.Println("Training the Tsetlin Machine...")
+		startTime := time.Now()
 		if err := machine.Fit(data.TrainX, data.TrainY, 1); err != nil {
 			log.Fatalf("Training failed: %v", err)
 		}
+		trainingTime := time.Since(startTime)
 
 		// Calculate training accuracy
 		trainCorrect := 0
@@ -55,10 +60,11 @@ func main() {
 			}
 		}
 		trainAcc := float64(trainCorrect) / float64(len(data.TrainX))
-		fmt.Printf("Training accuracy: %.2f%% (%d/%d)\n", trainAcc*100, trainCorrect, len(data.TrainX))
+		fmt.Printf("Training accuracy: %.2f%% (%d/%d) in %v\n", trainAcc*100, trainCorrect, len(data.TrainX), trainingTime)
 
-		// Calculate test accuracy
+		// Time the evaluation phase
 		fmt.Println("Evaluating on test set...")
+		startTime = time.Now()
 		testCorrect := 0
 		for i := 0; i < len(data.TestX); i++ {
 			pred, err := machine.PredictClass(data.TestX[i])
@@ -70,15 +76,20 @@ func main() {
 				testCorrect++
 			}
 		}
+		evalTime := time.Since(startTime)
 		testAcc := float64(testCorrect) / float64(len(data.TestX))
-		fmt.Printf("Test accuracy: %.2f%% (%d/%d)\n", testAcc*100, testCorrect, len(data.TestX))
+		fmt.Printf("Test accuracy: %.2f%% (%d/%d) in %v\n", testAcc*100, testCorrect, len(data.TestX), evalTime)
 	}
 
 	// Show predictions for first 10 test samples
 	fmt.Println("\nSample predictions from test set:")
 	for i := 0; i < 10; i++ {
-		result, _ := machine.Predict(data.TestX[i])
-		fmt.Printf("Sample %d: True=%d, Predicted=%d, Confidence=%.2f, Votes=%v\n",
-			i, data.TestY[i], result.PredictedClass, result.Confidence, result.Votes)
+		pred, err := machine.PredictClass(data.TestX[i])
+		if err != nil {
+			log.Printf("Prediction error: %v", err)
+			continue
+		}
+		fmt.Printf("Sample %d: True=%d, Predicted=%d\n",
+			i, data.TestY[i], pred)
 	}
 }

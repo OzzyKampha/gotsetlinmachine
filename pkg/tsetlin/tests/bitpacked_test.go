@@ -168,7 +168,10 @@ func TestBitPackedMultiClass(t *testing.T) {
 
 	// Test prediction functionality
 	input := []float64{1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0}
-	prediction := tm.Predict(input)
+	prediction, err := tm.PredictClass(input)
+	if err != nil {
+		t.Fatalf("Failed to predict: %v", err)
+	}
 	if prediction < 0 || prediction >= config.NumClasses {
 		t.Errorf("Invalid prediction: %d", prediction)
 	}
@@ -187,11 +190,15 @@ func TestBitPackedMultiClass(t *testing.T) {
 
 	// Test prediction after training
 	for i, input := range X {
-		prediction := tm.Predict(input)
+		result, err := tm.Predict(input)
+		if err != nil {
+			t.Errorf("Failed to predict: %v", err)
+			continue
+		}
 		// Adjust expected predictions to match the new implementation's behavior
 		expectedPrediction := i
-		if prediction != expectedPrediction {
-			t.Errorf("Expected prediction %d for input %d, got %d", expectedPrediction, i, prediction)
+		if result.PredictedClass != expectedPrediction {
+			t.Errorf("Expected prediction %d for input %d, got %d", expectedPrediction, i, result.PredictedClass)
 		}
 	}
 }

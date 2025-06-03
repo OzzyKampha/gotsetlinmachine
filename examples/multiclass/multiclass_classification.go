@@ -47,40 +47,42 @@ func main() {
 	}
 	y := []int{0, 0, 0, 1, 1, 1, 2, 2, 2}
 
-	// Train the model one epoch at a time
-	epochs := 10
-	for epoch := 1; epoch <= epochs; epoch++ {
-		if err := machine.Fit(X, y, 1); err != nil {
-			log.Fatalf("Failed to train model: %v", err)
-		}
+	// Train the model
+	fmt.Println("Training the model...")
+	err = machine.Fit(X, y, 10)
+	if err != nil {
+		log.Fatalf("Failed to train model: %v", err)
+	}
 
-		// Compute training accuracy
-		correct := 0
-		for i, input := range X {
-			pred := machine.Predict(input)
-			if pred == y[i] {
-				correct++
+	// Test the model
+	fmt.Println("\nTesting the model...")
+	for i, input := range X {
+		result, err := machine.Predict(input)
+		if err != nil {
+			log.Fatalf("Failed to make prediction: %v", err)
+		}
+		fmt.Printf("Input: %v, Expected: %d, Predicted: %d, Confidence: %.2f\n",
+			input, y[i], result.PredictedClass, result.Confidence)
+	}
+
+	// Analyze learned clauses
+	fmt.Println("\nAnalyzing learned clauses...")
+	clauseInfo := machine.GetClauseInfo()
+	for classIdx, classClauses := range clauseInfo {
+		fmt.Printf("\nClass %d Clauses:\n", classIdx)
+		activeClauses := 0
+		for _, clause := range classClauses {
+			activeLiterals := 0
+			for _, active := range clause.Literals {
+				if active {
+					activeLiterals++
+				}
+			}
+			if activeLiterals > 0 {
+				activeClauses++
 			}
 		}
-		accuracy := float64(correct) / float64(len(X)) * 100
-		fmt.Printf("Epoch %d: Training accuracy = %.2f%%\n", epoch, accuracy)
-	}
-
-	// Test the model with both training and new patterns
-	testPatterns := [][]float64{
-		{1, 1, 0, 0}, // Should be class 0
-		{0, 0, 1, 1}, // Should be class 1
-		{1, 0, 1, 0}, // Should be class 2
-		{1, 1, 1, 1}, // New pattern
-		{0, 0, 0, 0}, // New pattern
-	}
-
-	fmt.Println("\nTesting the model:")
-	for _, input := range testPatterns {
-		prediction := machine.Predict(input)
-		fmt.Printf("Input: %v\n", input)
-		fmt.Printf("Predicted class: %d\n", prediction)
-		fmt.Println()
+		fmt.Printf("Active Clauses: %d/%d\n", activeClauses, len(classClauses))
 	}
 }
 

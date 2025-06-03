@@ -188,3 +188,44 @@ func (mctm *MultiClassTsetlinMachine) PredictProba(input []float64) ([]float64, 
 func (mctm *MultiClassTsetlinMachine) GetMachines() []*BitPackedTsetlinMachine {
 	return mctm.machines
 }
+
+// GetActiveClauses returns information about the active clauses for a given input for each class.
+func (mctm *MultiClassTsetlinMachine) GetActiveClauses(input []float64) [][]ClauseInfo {
+	result := make([][]ClauseInfo, len(mctm.machines))
+	for i, machine := range mctm.machines {
+		active := machine.GetActiveClauses(input)
+		// Convert []int (indices) to []ClauseInfo for compatibility
+		clauseInfos := make([]ClauseInfo, 0, len(active))
+		for _, idx := range active {
+			literals, _ := machine.GetClauseLiterals(idx)
+			clauseInfos = append(clauseInfos, ClauseInfo{
+				Literals:   literals,
+				IsPositive: machine.Clauses[idx].IsPositive,
+			})
+		}
+		result[i] = clauseInfos
+	}
+	return result
+}
+
+// GetClauseInfo returns information about the clauses in the machine.
+// This is useful for analyzing the learned patterns and model interpretability.
+func (mctm *MultiClassTsetlinMachine) GetClauseInfo() [][]ClauseInfo {
+	mctm.mu.Lock()
+	defer mctm.mu.Unlock()
+
+	info := make([][]ClauseInfo, len(mctm.machines))
+	for classIdx, machine := range mctm.machines {
+		info[classIdx] = make([]ClauseInfo, len(machine.Clauses))
+		for clauseIdx, clause := range machine.Clauses {
+			info[classIdx][clauseIdx] = ClauseInfo{
+				Literals:   make([]bool, mctm.config.NumFeatures),
+				IsPositive: clause.IsPositive,
+			}
+			for j := 0; j < mctm.config.NumFeatures; j++ {
+				info[classIdx][clauseIdx].Literals[j] = clause.HasInclude(j)
+			}
+		}
+	}
+	return info
+}

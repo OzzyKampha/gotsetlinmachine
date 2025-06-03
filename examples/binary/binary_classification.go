@@ -27,6 +27,7 @@ func RunBinaryExample() {
 	config.NStates = 100    // Number of states for the automata
 	config.NumClasses = 2   // Binary classification
 	config.RandomSeed = 42  // For reproducibility
+	config.Debug = true     // Enable debug logging
 
 	// XOR training data
 	X := [][]float64{
@@ -37,7 +38,7 @@ func RunBinaryExample() {
 	}
 	y := []int{0, 1, 1, 0}
 
-	// Create multiclass Tsetlin Machine
+	// Create multiclass Tsetlin Machine (configured for binary classification)
 	machine, err := tsetlin.NewMultiClassTsetlinMachine(config)
 	if err != nil {
 		log.Fatalf("Failed to create Multiclass Tsetlin Machine: %v", err)
@@ -45,40 +46,42 @@ func RunBinaryExample() {
 
 	// Train the model
 	fmt.Println("Training the model...")
-	for epoch := 1; epoch <= 1000; epoch++ {
-		err := machine.Fit(X, y, 1)
-		if err != nil {
-			log.Fatalf("Failed to train model: %v", err)
-		}
-		// Debug: Calculate and print accuracy after each epoch
-		correct := 0
-		for i, input := range X {
-			prediction, err := machine.PredictClass(input)
-			if err != nil {
-				log.Fatalf("Failed to predict: %v", err)
-			}
-			if prediction == y[i] {
-				correct++
-			}
-		}
-		fmt.Printf("Epoch %d: Accuracy = %.2f%%\n", epoch, float64(correct)/float64(len(X))*100)
+	err = machine.Fit(X, y, 100)
+	if err != nil {
+		log.Fatalf("Failed to train model: %v", err)
 	}
 
 	// Test the model
-	fmt.Println("\nTesting the model:")
+	fmt.Println("\nTesting the model...")
 	for i, input := range X {
-		prediction, err := machine.PredictClass(input)
+		result, err := machine.Predict(input)
 		if err != nil {
-			log.Fatalf("Failed to predict: %v", err)
+			log.Fatalf("Failed to make prediction: %v", err)
 		}
-		fmt.Printf("Input: %v\n", input)
-		fmt.Printf("True class: %d\n", y[i])
-		fmt.Printf("Predicted class: %d\n", prediction)
-		// Debug: Print clause activations for this input
-		for classIdx, m := range machine.GetMachines() {
-			active := m.GetActiveClauses(input)
-			fmt.Printf("  Class %d active clauses: %v\n", classIdx, active)
+		fmt.Printf("Input: %v, Expected: %d, Predicted: %d, Confidence: %.2f\n",
+			input, y[i], result.PredictedClass, result.Confidence)
+	}
+
+	// Get clause information
+	fmt.Println("\nAnalyzing learned clauses...")
+	clauseInfo := machine.GetClauseInfo()
+	for classIdx, classClauses := range clauseInfo {
+		fmt.Printf("\nClass %d Clauses:\n", classIdx)
+		for clauseIdx, clause := range classClauses {
+			fmt.Printf("Clause %d: ", clauseIdx)
+			if clause.IsPositive {
+				fmt.Print("Positive, ")
+			} else {
+				fmt.Print("Negative, ")
+			}
+			fmt.Printf("Match Score: %.2f, Momentum: %.2f\n", clause.MatchScore, clause.Momentum)
+			fmt.Print("Active Literals: ")
+			for i, active := range clause.Literals {
+				if active {
+					fmt.Printf("%d ", i)
+				}
+			}
+			fmt.Println()
 		}
-		fmt.Println()
 	}
 }

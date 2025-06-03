@@ -9,6 +9,11 @@ import (
 )
 
 // RunMNISTExample demonstrates multiclass classification using the MNIST dataset.
+// It shows how to:
+// 1. Configure a Tsetlin Machine for multiclass classification
+// 2. Train it on the MNIST dataset
+// 3. Make predictions and analyze the results
+// 4. Examine the learned clauses and their states
 func RunMNISTExample() {
 	// Set maximum number of samples to use
 	maxSamples := 54000 // Limit to 54,000 samples
@@ -23,74 +28,69 @@ func RunMNISTExample() {
 	// Configure the Tsetlin Machine for multiclass classification
 	config := tsetlin.DefaultConfig()
 	config.NumFeatures = len(data.TrainX[0])
-	config.NumClasses = 1000
-	config.NumClauses = 10
+	config.NumClasses = 10  // MNIST has 10 classes (digits 0-9)
+	config.NumClauses = 100 // Number of clauses per class
 	config.NumLiterals = len(data.TrainX[0])
 	config.Threshold = 50.0
 	config.S = 10.0
 	config.NStates = 100
 	config.RandomSeed = 42
-	config.Debug = false
+	config.Debug = true
 
+	// Create multiclass Tsetlin Machine
 	machine, err := tsetlin.NewMultiClassTsetlinMachine(config)
 	if err != nil {
 		log.Fatalf("Failed to create Multiclass Tsetlin Machine: %v", err)
 	}
 
-	for i := 0; i < 50; i++ {
-		fmt.Printf("\nEpoch %d/%d\n", i+1, 10)
+	// Train the model
+	fmt.Println("Training the model...")
+	startTime := time.Now()
+	err = machine.Fit(data.TrainX, data.TrainY, 10)
+	if err != nil {
+		log.Fatalf("Failed to train model: %v", err)
+	}
+	trainingTime := time.Since(startTime)
+	fmt.Printf("Training completed in %v\n", trainingTime)
 
-		// Time the training phase
-		fmt.Println("Training the Tsetlin Machine...")
-		startTime := time.Now()
-		if err := machine.Fit(data.TrainX, data.TrainY, 1); err != nil {
-			log.Fatalf("Training failed: %v", err)
+	// Test the model
+	fmt.Println("\nTesting the model...")
+	correct := 0
+	total := len(data.TestX)
+	for i, input := range data.TestX {
+		result, err := machine.Predict(input)
+		if err != nil {
+			log.Fatalf("Failed to make prediction: %v", err)
 		}
-		trainingTime := time.Since(startTime)
-
-		// Calculate training accuracy
-		trainCorrect := 0
-		for i := 0; i < len(data.TrainX); i++ {
-			pred, err := machine.PredictClass(data.TrainX[i])
-			if err != nil {
-				log.Printf("Training prediction error: %v", err)
-				continue
-			}
-			if pred == data.TrainY[i] {
-				trainCorrect++
-			}
+		if result.PredictedClass == data.TestY[i] {
+			correct++
 		}
-		trainAcc := float64(trainCorrect) / float64(len(data.TrainX))
-		fmt.Printf("Training accuracy: %.2f%% (%d/%d) in %v\n", trainAcc*100, trainCorrect, len(data.TrainX), trainingTime)
-
-		// Time the evaluation phase
-		fmt.Println("Evaluating on test set...")
-		startTime = time.Now()
-		testCorrect := 0
-		for i := 0; i < len(data.TestX); i++ {
-			pred, err := machine.PredictClass(data.TestX[i])
-			if err != nil {
-				log.Printf("Test prediction error: %v", err)
-				continue
-			}
-			if pred == data.TestY[i] {
-				testCorrect++
-			}
+		if (i+1)%1000 == 0 {
+			fmt.Printf("Processed %d/%d test samples\n", i+1, total)
 		}
-		evalTime := time.Since(startTime)
-		testAcc := float64(testCorrect) / float64(len(data.TestX))
-		fmt.Printf("Test accuracy: %.2f%% (%d/%d) in %v\n", testAcc*100, testCorrect, len(data.TestX), evalTime)
 	}
 
-	// Show predictions for first 10 test samples
-	fmt.Println("\nSample predictions from test set:")
-	for i := 0; i < 10; i++ {
-		pred, err := machine.PredictClass(data.TestX[i])
-		if err != nil {
-			log.Printf("Prediction error: %v", err)
-			continue
+	// Print results
+	accuracy := float64(correct) / float64(total) * 100
+	fmt.Printf("\nTest Accuracy: %.2f%% (%d/%d)\n", accuracy, correct, total)
+
+	// Analyze learned clauses
+	fmt.Println("\nAnalyzing learned clauses...")
+	clauseInfo := machine.GetClauseInfo()
+	for classIdx, classClauses := range clauseInfo {
+		fmt.Printf("\nClass %d (Digit %d) Clauses:\n", classIdx, classIdx)
+		activeClauses := 0
+		for _, clause := range classClauses {
+			activeLiterals := 0
+			for _, active := range clause.Literals {
+				if active {
+					activeLiterals++
+				}
+			}
+			if activeLiterals > 0 {
+				activeClauses++
+			}
 		}
-		fmt.Printf("Sample %d: True=%d, Predicted=%d\n",
-			i, data.TestY[i], pred)
+		fmt.Printf("Active Clauses: %d/%d\n", activeClauses, len(classClauses))
 	}
 }

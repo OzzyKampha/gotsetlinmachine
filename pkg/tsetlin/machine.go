@@ -31,77 +31,10 @@ type TsetlinMachine struct {
 	printMu sync.Mutex
 }
 
-// NewTsetlinMachine creates a new binary Tsetlin Machine.
-// It initializes the machine with the given configuration and sets up
-// the clauses, states, and interested features tracking.
-func NewTsetlinMachine(config Config) (*TsetlinMachine, error) {
-	if config.NumFeatures <= 0 {
-		return nil, fmt.Errorf("number of features must be positive")
-	}
-	if config.NumClauses <= 0 {
-		return nil, fmt.Errorf("number of clauses must be positive")
-	}
-	if config.NumLiterals <= 0 {
-		return nil, fmt.Errorf("number of literals must be positive")
-	}
-	if config.NStates <= 0 {
-		return nil, fmt.Errorf("number of states must be positive")
-	}
-
-	tm := &TsetlinMachine{
-		config:             config,
-		clauses:            make([]*BitPackedClause, config.NumClauses),
-		states:             make([][]int, config.NumClauses),
-		randSource:         rand.New(rand.NewSource(config.RandomSeed)),
-		interestedFeatures: make([]map[int]struct{}, config.NumClauses),
-		matchScores:        make([]float64, config.NumClauses),
-		momentums:          make([]float64, config.NumClauses),
-	}
-
-	// Initialize clauses and states
-	for i := range tm.clauses {
-		tm.clauses[i] = NewBitPackedClause(config.NumFeatures)
-		tm.states[i] = make([]int, config.NumLiterals)
-		tm.interestedFeatures[i] = make(map[int]struct{})
-		tm.matchScores[i] = 1.0 // Initialize MatchScore to 1.0
-		tm.momentums[i] = 0.5   // Initialize Momentum to 0.5
-
-		// Ensure each clause has at least one active literal
-		activeLiterals := 0
-		for j := range tm.states[i] {
-			// Randomly initialize literals with higher probability of being active
-			if tm.randSource.Float64() < 0.7 { // 70% chance of being active
-				if tm.randSource.Intn(2) == 1 {
-					tm.clauses[i].SetInclude(j, true)
-					activeLiterals++
-					tm.interestedFeatures[i][j] = struct{}{}
-				}
-			}
-
-			// Initialize states with more variation
-			if tm.clauses[i].HasInclude(j) {
-				// For active literals, initialize states more towards the extremes
-				if tm.randSource.Float64() < 0.5 {
-					tm.states[i][j] = tm.randSource.Intn(config.NStates/4) + 1 // Lower states
-				} else {
-					tm.states[i][j] = tm.randSource.Intn(config.NStates/4) + 3*config.NStates/4 // Higher states
-				}
-			} else {
-				// For inactive literals, initialize to middle
-				tm.states[i][j] = config.NStates / 2
-			}
-		}
-
-		// If no active literals, force at least one
-		if activeLiterals == 0 {
-			j := tm.randSource.Intn(config.NumLiterals)
-			tm.clauses[i].SetInclude(j, true)
-			tm.interestedFeatures[i][j] = struct{}{}
-			tm.states[i][j] = tm.randSource.Intn(config.NStates/4) + 3*config.NStates/4
-		}
-	}
-
-	return tm, nil
+// NewTsetlinMachine creates a new Tsetlin Machine.
+// It now returns a MultiClassTsetlinMachine for all cases.
+func NewTsetlinMachine(config Config) (Machine, error) {
+	return NewMultiClassTsetlinMachine(config)
 }
 
 // Fit trains the Tsetlin Machine on the given data.

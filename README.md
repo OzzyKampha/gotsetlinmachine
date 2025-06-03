@@ -98,15 +98,29 @@ The Tsetlin Machine can be configured using the following parameters:
 
 ## Performance
 
-### Training Speed
-- Small models: ~850-900 examples/second
-- Medium models: ~4,000-4,700 examples/second
-- Large models: ~6,300-6,700 examples/second
+The following benchmarks were run on an Intel Core Ultra 9 185H processor. The metrics show both throughput (operations/examples per second) and memory efficiency (bytes and allocations per operation).
 
-### Inference Speed
-- Basic clause matching: 0.69 ns/op
-- Full prediction: 2,546 ns/op
-- Clause skipping optimization: 780.1 ns/op
+### Training Speed
+```
+Small models:  ~850-900 examples/second
+Medium models: ~4,000-4,700 examples/second
+Large models:  ~6,300-6,700 examples/second
+```
+
+### Inference Performance
+```
+Clause matching:     1.35B ops/sec    (0 B/op, 0 allocs/op)
+Full prediction:     390K ops/sec     (16 B/op, 1 allocs/op)
+Clause skipping:     1.24M examples/sec (0 B/op, 0 allocs/op)
+Large TM (Sparse):   1.30M examples/sec (0 B/op, 0 allocs/op)
+Large TM (Dense):    911K examples/sec  (0 B/op, 0 allocs/op)
+```
+
+Key metrics explained:
+- **ops/sec**: Operations per second, higher is better
+- **B/op**: Bytes allocated per operation, lower is better
+- **allocs/op**: Number of memory allocations per operation, lower is better
+- **Sparse/Dense**: Input data density (sparse inputs are faster to process)
 
 ## Contributing
 

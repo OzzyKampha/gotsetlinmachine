@@ -1,4 +1,4 @@
-package main
+package mnist
 
 import (
 	"fmt"
@@ -8,7 +8,8 @@ import (
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
 
-func main() {
+// RunMNISTExample demonstrates multiclass classification using the MNIST dataset.
+func RunMNISTExample() {
 	// Set maximum number of samples to use
 	maxSamples := 54000 // Limit to 54,000 samples
 	trainRatio := 0.9   // 90% training, 10% testing
@@ -36,7 +37,7 @@ func main() {
 		log.Fatalf("Failed to create Multiclass Tsetlin Machine: %v", err)
 	}
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 50; i++ {
 		fmt.Printf("\nEpoch %d/%d\n", i+1, 10)
 
 		// Time the training phase

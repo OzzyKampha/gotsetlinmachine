@@ -88,7 +88,8 @@ func (mctm *MultiClassTsetlinMachine) Fit(X [][]float64, y []int, epochs int) er
 
 			for epoch := 0; epoch < epochs; epoch++ {
 				for i, sample := range X {
-					mctm.machines[class].Update(sample, binaryLabels[class][i])
+					bitInput := FromFloat64Slice(sample)
+					mctm.machines[class].UpdateBitVecWithClass(bitInput, y[i], class)
 				}
 			}
 		}()
@@ -98,12 +99,21 @@ func (mctm *MultiClassTsetlinMachine) Fit(X [][]float64, y []int, epochs int) er
 	return nil
 }
 
-// Predict returns the predicted class for the given input pattern.
-func (mctm *MultiClassTsetlinMachine) Predict(input []float64) int {
+// Predict returns the prediction results for the input.
+// It includes the predicted class, confidence scores, and voting information.
+func (mctm *MultiClassTsetlinMachine) Predict(input []float64) (PredictionResult, error) {
+	if len(input) != mctm.config.NumFeatures {
+		return PredictionResult{}, fmt.Errorf("input features dimension mismatch: expected %d, got %d",
+			mctm.config.NumFeatures, len(input))
+	}
+
+	// Get scores from each binary classifier
 	scores := make([]int, mctm.config.NumClasses)
 	for class := 0; class < mctm.config.NumClasses; class++ {
 		scores[class] = mctm.machines[class].Predict(input)
 	}
+
+	// Find the class with the highest score
 	maxScore := scores[0]
 	predictedClass := 0
 	for class := 1; class < mctm.config.NumClasses; class++ {
@@ -112,14 +122,42 @@ func (mctm *MultiClassTsetlinMachine) Predict(input []float64) int {
 			predictedClass = class
 		}
 	}
-	return predictedClass
+
+	// Convert scores to float64 for votes
+	votes := make([]float64, mctm.config.NumClasses)
+	for i, score := range scores {
+		votes[i] = float64(score)
+	}
+
+	// Calculate margin (difference between highest and second highest scores)
+	margin := float64(maxScore)
+	secondHighest := 0
+	for class := 0; class < mctm.config.NumClasses; class++ {
+		if class != predictedClass && scores[class] > secondHighest {
+			secondHighest = scores[class]
+		}
+	}
+	margin -= float64(secondHighest)
+
+	// Calculate confidence based on margin and number of clauses
+	confidence := margin / float64(mctm.config.NumClauses)
+
+	return PredictionResult{
+		Votes:          votes,
+		PredictedClass: predictedClass,
+		Margin:         margin,
+		Confidence:     confidence,
+	}, nil
 }
 
 // PredictClass returns just the predicted class for the input.
 // This is a convenience method when only the class prediction is needed.
 func (mctm *MultiClassTsetlinMachine) PredictClass(input []float64) (int, error) {
-	result := mctm.Predict(input)
-	return result, nil
+	result, err := mctm.Predict(input)
+	if err != nil {
+		return 0, err
+	}
+	return result.PredictedClass, nil
 }
 
 // PredictProba returns probability estimates for each class.
@@ -144,4 +182,9 @@ func (mctm *MultiClassTsetlinMachine) PredictProba(input []float64) ([]float64, 
 	}
 
 	return probs, nil
+}
+
+// GetMachines returns the underlying binary Tsetlin Machines for each class.
+func (mctm *MultiClassTsetlinMachine) GetMachines() []*BitPackedTsetlinMachine {
+	return mctm.machines
 }

@@ -1,4 +1,4 @@
-package main
+package mnist
 
 import (
 	"compress/gzip"
@@ -11,175 +11,42 @@ import (
 	"path/filepath"
 )
 
-// MNISTData represents the loaded MNIST dataset
-type MNISTData struct {
-	TrainX [][]float64
-	TrainY []int
-	TestX  [][]float64
-	TestY  []int
-}
+const (
+	mnistBaseURL = "https://storage.googleapis.com/cvdf-datasets/mnist/"
+	trainImages  = "train-images-idx3-ubyte.gz"
+	trainLabels  = "train-labels-idx1-ubyte.gz"
+)
 
-// LoadMNISTData loads and prepares the MNIST dataset
-func LoadMNISTData(maxSamples int, trainRatio float64) (*MNISTData, error) {
-	// Define paths for MNIST files
-	dataDir := "data"
-	imagePath := filepath.Join(dataDir, "train-images-idx3-ubyte")
-	labelPath := filepath.Join(dataDir, "train-labels-idx1-ubyte")
-	imageGzPath := imagePath + ".gz"
-	labelGzPath := labelPath + ".gz"
-
+// downloadMNISTData downloads the MNIST dataset if it doesn't exist
+func downloadMNISTData(baseDir string) error {
 	// Create data directory if it doesn't exist
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		return fmt.Errorf("failed to create data directory: %v", err)
 	}
 
-	// Download and decompress MNIST image file if needed
-	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
-		fmt.Println("Downloading MNIST images...")
-		if _, err := os.Stat(imageGzPath); os.IsNotExist(err) {
-			if err := downloadFile("https://storage.googleapis.com/cvdf-datasets/mnist/train-images-idx3-ubyte.gz", imageGzPath); err != nil {
-				return nil, fmt.Errorf("failed to download images: %v", err)
-			}
+	// Download and extract training images
+	imagesPath := filepath.Join(baseDir, "train-images-idx3-ubyte")
+	if _, err := os.Stat(imagesPath); os.IsNotExist(err) {
+		if err := downloadAndExtract(mnistBaseURL+trainImages, imagesPath); err != nil {
+			return fmt.Errorf("failed to download training images: %v", err)
 		}
-		fmt.Println("Decompressing MNIST images...")
-		if err := decompressGzip(imageGzPath, imagePath); err != nil {
-			return nil, fmt.Errorf("failed to decompress images: %v", err)
+	}
+
+	// Download and extract training labels
+	labelsPath := filepath.Join(baseDir, "train-labels-idx1-ubyte")
+	if _, err := os.Stat(labelsPath); os.IsNotExist(err) {
+		if err := downloadAndExtract(mnistBaseURL+trainLabels, labelsPath); err != nil {
+			return fmt.Errorf("failed to download training labels: %v", err)
 		}
-		os.Remove(imageGzPath)
 	}
 
-	// Download and decompress MNIST label file if needed
-	if _, err := os.Stat(labelPath); os.IsNotExist(err) {
-		fmt.Println("Downloading MNIST labels...")
-		if _, err := os.Stat(labelGzPath); os.IsNotExist(err) {
-			if err := downloadFile("https://storage.googleapis.com/cvdf-datasets/mnist/train-labels-idx1-ubyte.gz", labelGzPath); err != nil {
-				return nil, fmt.Errorf("failed to download labels: %v", err)
-			}
-		}
-		fmt.Println("Decompressing MNIST labels...")
-		if err := decompressGzip(labelGzPath, labelPath); err != nil {
-			return nil, fmt.Errorf("failed to decompress labels: %v", err)
-		}
-		os.Remove(labelGzPath)
-	}
-
-	fmt.Println("Loading MNIST data...")
-	X, err := loadIDXImages(imagePath, maxSamples)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load images: %v", err)
-	}
-	y, err := loadIDXLabels(labelPath, maxSamples)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load labels: %v", err)
-	}
-
-	fmt.Printf("Loaded %d samples with %d features each.\n", len(X), len(X[0]))
-
-	// Set random seed for reproducibility
-	rand.Seed(42)
-
-	// Split data into training and testing sets
-	trainX, trainY, testX, testY := shuffleAndSplit(X, y, trainRatio)
-	fmt.Printf("Training set size: %d samples\n", len(trainX))
-	fmt.Printf("Testing set size: %d samples\n", len(testX))
-
-	return &MNISTData{
-		TrainX: trainX,
-		TrainY: trainY,
-		TestX:  testX,
-		TestY:  testY,
-	}, nil
+	return nil
 }
 
-// loadIDXImages loads MNIST images from an IDX file and returns a slice of binarized images
-func loadIDXImages(path string, maxSamples int) ([][]float64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	var magic, numImages, numRows, numCols int32
-	if err := binary.Read(f, binary.BigEndian, &magic); err != nil {
-		return nil, err
-	}
-	if err := binary.Read(f, binary.BigEndian, &numImages); err != nil {
-		return nil, err
-	}
-	if err := binary.Read(f, binary.BigEndian, &numRows); err != nil {
-		return nil, err
-	}
-	if err := binary.Read(f, binary.BigEndian, &numCols); err != nil {
-		return nil, err
-	}
-
-	if maxSamples > 0 && int32(maxSamples) < numImages {
-		numImages = int32(maxSamples)
-	}
-
-	images := make([][]float64, numImages)
-	buf := make([]byte, numRows*numCols)
-	for i := int32(0); i < numImages; i++ {
-		if _, err := io.ReadFull(f, buf); err != nil {
-			return nil, err
-		}
-		img := make([]float64, numRows*numCols)
-		for j, px := range buf {
-			if px > 127 {
-				img[j] = 1.0
-			} else {
-				img[j] = 0.0
-			}
-		}
-		images[i] = img
-	}
-	return images, nil
-}
-
-// loadIDXLabels loads MNIST labels from an IDX file
-func loadIDXLabels(path string, maxSamples int) ([]int, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	var magic, numLabels int32
-	if err := binary.Read(f, binary.BigEndian, &magic); err != nil {
-		return nil, err
-	}
-	if err := binary.Read(f, binary.BigEndian, &numLabels); err != nil {
-		return nil, err
-	}
-
-	if maxSamples > 0 && int32(maxSamples) < numLabels {
-		numLabels = int32(maxSamples)
-	}
-
-	labels := make([]int, numLabels)
-	buf := make([]byte, numLabels)
-	if _, err := io.ReadFull(f, buf); err != nil {
-		return nil, err
-	}
-	for i, b := range buf {
-		labels[i] = int(b)
-	}
-	return labels, nil
-}
-
-func downloadFile(url, dest string) error {
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return nil
-		},
-	}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept-Encoding", "gzip")
-
-	resp, err := client.Do(req)
+// downloadAndExtract downloads a gzipped file and extracts it
+func downloadAndExtract(url, outputPath string) error {
+	// Download the file
+	resp, err := http.Get(url)
 	if err != nil {
 		return err
 	}
@@ -189,43 +56,69 @@ func downloadFile(url, dest string) error {
 		return fmt.Errorf("bad status: %s", resp.Status)
 	}
 
-	out, err := os.Create(dest)
+	// Create a gzip reader
+	gzReader, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to create gzip reader: %v", err)
+	}
+	defer gzReader.Close()
+
+	// Create output file
+	out, err := os.Create(outputPath)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 
-	_, err = io.Copy(out, resp.Body)
+	// Copy the decompressed data to the output file
+	_, err = io.Copy(out, gzReader)
 	return err
 }
 
-func decompressGzip(gzPath, destPath string) error {
-	gzFile, err := os.Open(gzPath)
-	if err != nil {
-		return err
-	}
-	defer gzFile.Close()
-
-	gzReader, err := gzip.NewReader(gzFile)
-	if err != nil {
-		return err
-	}
-	defer gzReader.Close()
-
-	outFile, err := os.Create(destPath)
-	if err != nil {
-		return err
-	}
-	defer outFile.Close()
-
-	_, err = io.Copy(outFile, gzReader)
-	return err
+// MNISTData holds the training and test data for MNIST
+type MNISTData struct {
+	TrainX [][]float64
+	TrainY []int
+	TestX  [][]float64
+	TestY  []int
 }
 
-// shuffleAndSplit shuffles the data and splits it into training and testing sets
-func shuffleAndSplit(X [][]float64, y []int, trainRatio float64) ([][]float64, []int, [][]float64, []int) {
-	// Create indices array and shuffle it
-	indices := make([]int, len(X))
+// LoadMNISTData loads the MNIST dataset and returns training and test data
+func LoadMNISTData(maxSamples int, trainRatio float64) (*MNISTData, error) {
+	// Define paths to MNIST files
+	baseDir := "examples/mnist/data"
+
+	// Download data if it doesn't exist
+	if err := downloadMNISTData(baseDir); err != nil {
+		return nil, fmt.Errorf("failed to download MNIST data: %v", err)
+	}
+
+	imagesFile := filepath.Join(baseDir, "train-images-idx3-ubyte")
+	labelsFile := filepath.Join(baseDir, "train-labels-idx1-ubyte")
+
+	// Load images
+	images, err := loadImages(imagesFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load images: %v", err)
+	}
+
+	// Load labels
+	labels, err := loadLabels(labelsFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load labels: %v", err)
+	}
+
+	// Limit number of samples if needed
+	if maxSamples > 0 && maxSamples < len(images) {
+		images = images[:maxSamples]
+		labels = labels[:maxSamples]
+	}
+
+	// Split into training and test sets
+	trainSize := int(float64(len(images)) * trainRatio)
+
+	// Shuffle the data
+	indices := make([]int, len(images))
 	for i := range indices {
 		indices[i] = i
 	}
@@ -233,23 +126,111 @@ func shuffleAndSplit(X [][]float64, y []int, trainRatio float64) ([][]float64, [
 		indices[i], indices[j] = indices[j], indices[i]
 	})
 
-	// Calculate split point
-	splitPoint := int(float64(len(X)) * trainRatio)
+	// Create training and test sets
+	trainX := make([][]float64, trainSize)
+	trainY := make([]int, trainSize)
+	testX := make([][]float64, len(images)-trainSize)
+	testY := make([]int, len(images)-trainSize)
 
-	// Split the data
-	trainX := make([][]float64, splitPoint)
-	trainY := make([]int, splitPoint)
-	testX := make([][]float64, len(X)-splitPoint)
-	testY := make([]int, len(X)-splitPoint)
-
-	for i, idx := range indices[:splitPoint] {
-		trainX[i] = X[idx]
-		trainY[i] = y[idx]
-	}
-	for i, idx := range indices[splitPoint:] {
-		testX[i] = X[idx]
-		testY[i] = y[idx]
+	for i, idx := range indices {
+		if i < trainSize {
+			trainX[i] = images[idx]
+			trainY[i] = labels[idx]
+		} else {
+			testX[i-trainSize] = images[idx]
+			testY[i-trainSize] = labels[idx]
+		}
 	}
 
-	return trainX, trainY, testX, testY
+	return &MNISTData{
+		TrainX: trainX,
+		TrainY: trainY,
+		TestX:  testX,
+		TestY:  testY,
+	}, nil
+}
+
+// loadImages loads MNIST images from the given file
+func loadImages(filename string) ([][]float64, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	// Read magic number
+	var magic uint32
+	if err := binary.Read(file, binary.BigEndian, &magic); err != nil {
+		return nil, err
+	}
+	if magic != 2051 {
+		return nil, fmt.Errorf("invalid magic number for images file: %d", magic)
+	}
+
+	// Read number of images
+	var numImages uint32
+	if err := binary.Read(file, binary.BigEndian, &numImages); err != nil {
+		return nil, err
+	}
+
+	// Read image dimensions
+	var rows, cols uint32
+	if err := binary.Read(file, binary.BigEndian, &rows); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(file, binary.BigEndian, &cols); err != nil {
+		return nil, err
+	}
+
+	// Read images
+	images := make([][]float64, numImages)
+	for i := uint32(0); i < numImages; i++ {
+		image := make([]float64, rows*cols)
+		for j := uint32(0); j < rows*cols; j++ {
+			var pixel uint8
+			if err := binary.Read(file, binary.BigEndian, &pixel); err != nil {
+				return nil, err
+			}
+			image[j] = float64(pixel) / 255.0 // Normalize to [0,1]
+		}
+		images[i] = image
+	}
+
+	return images, nil
+}
+
+// loadLabels loads MNIST labels from the given file
+func loadLabels(filename string) ([]int, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	// Read magic number
+	var magic uint32
+	if err := binary.Read(file, binary.BigEndian, &magic); err != nil {
+		return nil, err
+	}
+	if magic != 2049 {
+		return nil, fmt.Errorf("invalid magic number for labels file: %d", magic)
+	}
+
+	// Read number of labels
+	var numLabels uint32
+	if err := binary.Read(file, binary.BigEndian, &numLabels); err != nil {
+		return nil, err
+	}
+
+	// Read labels
+	labels := make([]int, numLabels)
+	for i := uint32(0); i < numLabels; i++ {
+		var label uint8
+		if err := binary.Read(file, binary.BigEndian, &label); err != nil {
+			return nil, err
+		}
+		labels[i] = int(label)
+	}
+
+	return labels, nil
 }

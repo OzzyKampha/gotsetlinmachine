@@ -244,3 +244,47 @@ func (tm *BitPackedTsetlinMachine) GetActiveClauses(input []float64) []int {
 	}
 	return active
 }
+
+// UpdateBitVecWithClass applies classic Type I and Type II feedback for multiclass Tsetlin Machine.
+func (tm *BitPackedTsetlinMachine) UpdateBitVecWithClass(input BitVec, target, class int) {
+	if target == class {
+		// Type I Feedback
+		for _, clause := range tm.Clauses {
+			matches := clause.Match(input)
+			for i := 0; i < tm.NumFeatures; i++ {
+				if matches {
+					if input.Test(i) {
+						// Reward: include literal with probability
+						if rand.Float64() < 1.0/tm.S {
+							clause.SetInclude(i, true)
+						}
+					} else {
+						// Penalty: exclude literal with probability
+						if rand.Float64() < 1.0/tm.S {
+							clause.SetInclude(i, false)
+						}
+					}
+				} else {
+					// Penalty: exclude literal with probability
+					if rand.Float64() < 1.0/tm.S {
+						clause.SetInclude(i, false)
+					}
+				}
+			}
+		}
+	} else {
+		// Type II Feedback
+		for _, clause := range tm.Clauses {
+			if clause.Match(input) {
+				for i := 0; i < tm.NumFeatures; i++ {
+					if input.Test(i) {
+						// Penalty: exclude literal with probability
+						if rand.Float64() < 1.0/tm.S {
+							clause.SetInclude(i, false)
+						}
+					}
+				}
+			}
+		}
+	}
+}

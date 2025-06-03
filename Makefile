@@ -1,32 +1,33 @@
-.PHONY: all test clean lint build run-example
+.PHONY: all test clean build examples
 
-all: test lint build
+all: test build
 
 test:
-	go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+	go test -v ./...
+
+test-coverage:
+	go test -v -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out
+
+build:
+	go build -v ./...
+
+clean:
+	go clean
+	rm -f coverage.out
+
+examples:
+	go run examples/main.go binary
+	go run examples/main.go multiclass
+
+benchmark:
+	go test -bench=. -benchmem ./...
 
 lint:
 	golangci-lint run
 
-build:
-	go build -o bin/example ./cmd/example
-
-run-example:
-	go run cmd/example/main.go
-
-clean:
-	rm -rf bin/
-	rm -f coverage.txt
-
 deps:
-	go mod download
 	go mod tidy
+	go mod verify
 
-bench:
-	go test -bench=. -benchmem ./...
-
-vet:
-	go vet ./...
-
-fmt:
-	go fmt ./... 
+.DEFAULT_GOAL := all 

@@ -24,8 +24,9 @@
 //	config.Threshold = 5.0
 //	config.S = 3.9
 //	config.NStates = 100
+//	config.NumClasses = 2  // Binary classification
 //
-//	machine, err := tsetlin.NewTsetlinMachine(config)
+//	machine, err := tsetlin.NewMultiClassTsetlinMachine(config)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}

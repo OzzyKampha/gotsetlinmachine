@@ -1,7 +1,7 @@
-// Package multiclass demonstrates multiclass classification using the Tsetlin Machine.
+// Package main demonstrates multiclass classification using the Tsetlin Machine.
 // This example shows how to use the Tsetlin Machine for pattern recognition
 // with multiple classes, using the one-vs-all approach.
-package multiclass
+package main
 
 import (
 	"fmt"
@@ -10,13 +10,7 @@ import (
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
 
-// RunMulticlassExample demonstrates multiclass classification using pattern recognition.
-// It shows how to:
-// 1. Configure a multiclass Tsetlin Machine
-// 2. Train it on a dataset with multiple classes
-// 3. Make predictions on both seen and unseen patterns
-// 4. Analyze the learned clauses for each class
-func RunMulticlassExample() {
+func main() {
 	// Create configuration for multiclass classification
 	config := tsetlin.DefaultConfig()
 	config.NumFeatures = 4  // Number of input features
@@ -55,50 +49,47 @@ func RunMulticlassExample() {
 
 	// Train the model
 	fmt.Println("Training the model...")
-	if err := machine.Fit(X, y, 100); err != nil {
+	err = machine.Fit(X, y, 10)
+	if err != nil {
 		log.Fatalf("Failed to train model: %v", err)
 	}
 
-	// Test the model with both training and new patterns
-	testPatterns := [][]float64{
-		{1, 1, 0, 0}, // Should be class 0
-		{0, 0, 1, 1}, // Should be class 1
-		{1, 0, 1, 0}, // Should be class 2
-		{1, 1, 1, 1}, // New pattern
-		{0, 0, 0, 0}, // New pattern
-	}
-
-	fmt.Println("\nTesting the model:")
-	for _, input := range testPatterns {
+	// Test the model
+	fmt.Println("\nTesting the model...")
+	for i, input := range X {
 		result, err := machine.Predict(input)
 		if err != nil {
-			log.Printf("Error predicting for input %v: %v", input, err)
-			continue
+			log.Fatalf("Failed to make prediction: %v", err)
 		}
-
-		probs, err := machine.PredictProba(input)
-		if err != nil {
-			log.Printf("Error getting probabilities for input %v: %v", input, err)
-			continue
-		}
-
-		fmt.Printf("Input: %v\n", input)
-		fmt.Printf("Predicted class: %d\n", result.PredictedClass)
-		fmt.Printf("Confidence: %.2f\n", result.Confidence)
-		fmt.Printf("Probabilities: [%.3f, %.3f, %.3f]\n", probs[0], probs[1], probs[2])
-		fmt.Printf("Active clauses: %v\n", len(machine.GetActiveClauses(input)[0]))
-		fmt.Println()
+		fmt.Printf("Input: %v, Expected: %d, Predicted: %d, Confidence: %.2f\n",
+			input, y[i], result.PredictedClass, result.Confidence)
 	}
 
-	// Get and print clause information for each class
-	fmt.Println("Clause Information:")
+	// Analyze learned clauses
+	fmt.Println("\nAnalyzing learned clauses...")
 	clauseInfo := machine.GetClauseInfo()
-	for class := 0; class < config.NumClasses; class++ {
-		fmt.Printf("\nClass %d:\n", class)
-		for i, clause := range clauseInfo[class] {
-			fmt.Printf("  Clause %d:\n", i)
-			fmt.Printf("    Literals: %v\n", clause.Literals)
-			fmt.Printf("    Is Positive: %v\n", clause.IsPositive)
+	for classIdx, classClauses := range clauseInfo {
+		fmt.Printf("\nClass %d Clauses:\n", classIdx)
+		activeClauses := 0
+		for _, clause := range classClauses {
+			activeLiterals := 0
+			for _, active := range clause.Literals {
+				if active {
+					activeLiterals++
+				}
+			}
+			if activeLiterals > 0 {
+				activeClauses++
+			}
 		}
+		fmt.Printf("Active Clauses: %d/%d\n", activeClauses, len(classClauses))
 	}
+}
+
+// Helper function for min
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

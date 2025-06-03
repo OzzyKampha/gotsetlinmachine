@@ -14,7 +14,7 @@ import (
 // by using multiple binary Tsetlin Machines, one for each class.
 type MultiClassTsetlinMachine struct {
 	config   Config
-	machines []*TsetlinMachine
+	machines []*BitPackedTsetlinMachine
 	wg       sync.WaitGroup
 	mu       sync.Mutex
 }
@@ -31,27 +31,16 @@ func NewMultiClassTsetlinMachine(config Config) (*MultiClassTsetlinMachine, erro
 	if config.NumClauses <= 0 {
 		return nil, fmt.Errorf("number of clauses must be positive")
 	}
-	if config.NumLiterals <= 0 {
-		return nil, fmt.Errorf("number of literals must be positive")
-	}
-	if config.NStates <= 0 {
-		return nil, fmt.Errorf("number of states must be positive")
-	}
 
 	mctm := &MultiClassTsetlinMachine{
 		config:   config,
-		machines: make([]*TsetlinMachine, config.NumClasses),
+		machines: make([]*BitPackedTsetlinMachine, config.NumClasses),
 	}
 
-	// Initialize one Tsetlin Machine per class
 	for i := 0; i < config.NumClasses; i++ {
 		binaryConfig := config
-		binaryConfig.NumClasses = 2 // Binary classification for each machine
-		machine, err := NewTsetlinMachine(binaryConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create binary machine %d: %w", i, err)
-		}
-		mctm.machines[i] = machine
+		binaryConfig.NumClasses = 2
+		mctm.machines[i] = NewBitPackedTsetlinMachine(binaryConfig)
 	}
 
 	return mctm, nil
@@ -71,7 +60,6 @@ func (mctm *MultiClassTsetlinMachine) Fit(X [][]float64, y []int, epochs int) er
 			mctm.config.NumFeatures, len(X[0]))
 	}
 
-	// Create binary labels for each class
 	binaryLabels := make([][]int, mctm.config.NumClasses)
 	for class := 0; class < mctm.config.NumClasses; class++ {
 		binaryLabels[class] = make([]int, len(y))
@@ -84,86 +72,79 @@ func (mctm *MultiClassTsetlinMachine) Fit(X [][]float64, y []int, epochs int) er
 		}
 	}
 
-	// Train each binary classifier in parallel
-	workerChan := make(chan int, runtime.NumCPU())
-	for i := 0; i < runtime.NumCPU(); i++ {
+	numWorkers := runtime.NumCPU() * 2
+	workerChan := make(chan int, numWorkers)
+	for i := 0; i < numWorkers; i++ {
 		workerChan <- i
 	}
 
 	for class := 0; class < mctm.config.NumClasses; class++ {
-		class := class // Create new variable for goroutine
+		class := class
 		mctm.wg.Add(1)
 		go func() {
 			defer mctm.wg.Done()
-			<-workerChan                       // Get worker from pool
-			defer func() { workerChan <- 0 }() // Return worker to pool
+			<-workerChan
+			defer func() { workerChan <- 0 }()
 
-			if err := mctm.machines[class].Fit(X, binaryLabels[class], epochs); err != nil {
-				// Note: In a real implementation, you might want to handle these errors differently
-				fmt.Printf("warning: error training class %d: %v\n", class, err)
+			for epoch := 0; epoch < epochs; epoch++ {
+				for i, sample := range X {
+					bitInput := FromFloat64Slice(sample)
+					mctm.machines[class].UpdateBitVecWithClass(bitInput, y[i], class)
+				}
 			}
 		}()
 	}
+	mctm.wg.Wait()
 	mctm.wg.Wait()
 
 	return nil
 }
 
 // Predict returns the prediction results for the input.
-// It combines predictions from all binary classifiers to make the final prediction.
+// It includes the predicted class, confidence scores, and voting information.
 func (mctm *MultiClassTsetlinMachine) Predict(input []float64) (PredictionResult, error) {
 	if len(input) != mctm.config.NumFeatures {
 		return PredictionResult{}, fmt.Errorf("input features dimension mismatch: expected %d, got %d",
 			mctm.config.NumFeatures, len(input))
 	}
 
-	// Get scores from each binary classifier in parallel
-	scores := make([]float64, mctm.config.NumClasses)
-	workerChan := make(chan int, runtime.NumCPU())
-	for i := 0; i < runtime.NumCPU(); i++ {
-		workerChan <- i
-	}
-
+	// Get scores from each binary classifier
+	scores := make([]int, mctm.config.NumClasses)
 	for class := 0; class < mctm.config.NumClasses; class++ {
-		class := class // Create new variable for goroutine
-		mctm.wg.Add(1)
-		<-workerChan // Get worker from pool
-		go func() {
-			defer mctm.wg.Done()
-			defer func() { workerChan <- 0 }() // Return worker to pool
-
-			result, err := mctm.machines[class].Predict(input)
-			if err != nil {
-				fmt.Printf("warning: error predicting class %d: %v\n", class, err)
-				return
-			}
-			scores[class] = result.Votes[0] // Use positive class score
-		}()
+		scores[class] = mctm.machines[class].Predict(input)
 	}
-	mctm.wg.Wait()
 
 	// Find the class with the highest score
 	maxScore := scores[0]
 	predictedClass := 0
-	secondHighestScore := float64(-1)
-
 	for class := 1; class < mctm.config.NumClasses; class++ {
 		if scores[class] > maxScore {
-			secondHighestScore = maxScore
 			maxScore = scores[class]
 			predictedClass = class
-		} else if scores[class] > secondHighestScore {
-			secondHighestScore = scores[class]
 		}
 	}
 
-	// Calculate margin and confidence
-	margin := math.Abs(maxScore - secondHighestScore)
-	maxPossibleVotes := float64(mctm.config.NumClauses)
-	confidence := math.Abs(margin / maxPossibleVotes)
+	// Convert scores to float64 for votes
+	votes := make([]float64, mctm.config.NumClasses)
+	for i, score := range scores {
+		votes[i] = float64(score)
+	}
+
+	// Calculate margin (difference between highest and second highest scores)
+	margin := float64(maxScore)
+	secondHighest := 0
+	for class := 0; class < mctm.config.NumClasses; class++ {
+		if class != predictedClass && scores[class] > secondHighest {
+			secondHighest = scores[class]
+		}
+	}
+	margin -= float64(secondHighest)
+
+	// Calculate confidence based on margin and number of clauses
+	confidence := margin / float64(mctm.config.NumClauses)
 
 	return PredictionResult{
-		Votes:          scores,
+		Votes:          votes,
 		PredictedClass: predictedClass,
 		Margin:         margin,
 		Confidence:     confidence,
@@ -183,16 +164,16 @@ func (mctm *MultiClassTsetlinMachine) PredictClass(input []float64) (int, error)
 // PredictProba returns probability estimates for each class.
 // The probabilities are calculated using softmax on the voting scores.
 func (mctm *MultiClassTsetlinMachine) PredictProba(input []float64) ([]float64, error) {
-	result, err := mctm.Predict(input)
-	if err != nil {
-		return nil, err
+	scores := make([]int, mctm.config.NumClasses)
+	for class := 0; class < mctm.config.NumClasses; class++ {
+		scores[class] = mctm.machines[class].Predict(input)
 	}
 
 	// Convert scores to probabilities using softmax
-	expScores := make([]float64, len(result.Votes))
+	expScores := make([]float64, len(scores))
 	var sum float64
-	for i, score := range result.Votes {
-		expScores[i] = math.Exp(score)
+	for i, score := range scores {
+		expScores[i] = math.Exp(float64(score))
 		sum += expScores[i]
 	}
 
@@ -204,44 +185,48 @@ func (mctm *MultiClassTsetlinMachine) PredictProba(input []float64) ([]float64, 
 	return probs, nil
 }
 
+// GetMachines returns the underlying binary Tsetlin Machines for each class.
+func (mctm *MultiClassTsetlinMachine) GetMachines() []*BitPackedTsetlinMachine {
+	return mctm.machines
+}
+
+// GetActiveClauses returns information about the active clauses for a given input for each class.
+func (mctm *MultiClassTsetlinMachine) GetActiveClauses(input []float64) [][]ClauseInfo {
+	result := make([][]ClauseInfo, len(mctm.machines))
+	for i, machine := range mctm.machines {
+		active := machine.GetActiveClauses(input)
+		// Convert []int (indices) to []ClauseInfo for compatibility
+		clauseInfos := make([]ClauseInfo, 0, len(active))
+		for _, idx := range active {
+			literals, _ := machine.GetClauseLiterals(idx)
+			clauseInfos = append(clauseInfos, ClauseInfo{
+				Literals:   literals,
+				IsPositive: machine.Clauses[idx].IsPositive,
+			})
+		}
+		result[i] = clauseInfos
+	}
+	return result
+}
+
 // GetClauseInfo returns information about the clauses in the machine.
 // This is useful for analyzing the learned patterns and model interpretability.
 func (mctm *MultiClassTsetlinMachine) GetClauseInfo() [][]ClauseInfo {
 	mctm.mu.Lock()
 	defer mctm.mu.Unlock()
 
-	info := make([][]ClauseInfo, mctm.config.NumClasses)
-	for i, machine := range mctm.machines {
-		info[i] = machine.GetClauseInfo()[0]
+	info := make([][]ClauseInfo, len(mctm.machines))
+	for classIdx, machine := range mctm.machines {
+		info[classIdx] = make([]ClauseInfo, len(machine.Clauses))
+		for clauseIdx, clause := range machine.Clauses {
+			info[classIdx][clauseIdx] = ClauseInfo{
+				Literals:   make([]bool, mctm.config.NumFeatures),
+				IsPositive: clause.IsPositive,
+			}
+			for j := 0; j < mctm.config.NumFeatures; j++ {
+				info[classIdx][clauseIdx].Literals[j] = clause.HasInclude(j)
+			}
+		}
 	}
-	return info
-}
-
-// GetActiveClauses returns information about the active clauses for a given input.
-// This helps understand which clauses contributed to the prediction.
-func (mctm *MultiClassTsetlinMachine) GetActiveClauses(input []float64) [][]ClauseInfo {
-	if len(input) != mctm.config.NumFeatures {
-		return nil
-	}
-
-	info := make([][]ClauseInfo, mctm.config.NumClasses)
-	workerChan := make(chan int, runtime.NumCPU())
-	for i := 0; i < runtime.NumCPU(); i++ {
-		workerChan <- i
-	}
-
-	for class := 0; class < mctm.config.NumClasses; class++ {
-		class := class
-		mctm.wg.Add(1)
-		go func() {
-			defer mctm.wg.Done()
-			<-workerChan
-			defer func() { workerChan <- 0 }()
-
-			info[class] = mctm.machines[class].GetActiveClauses(input)[0]
-		}()
-	}
-	mctm.wg.Wait()
-
 	return info
 }

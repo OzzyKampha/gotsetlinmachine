@@ -19,19 +19,15 @@ import (
 func RunBinaryExample() {
 	// Create configuration for binary classification
 	config := tsetlin.DefaultConfig()
-	config.NumFeatures = 2 // XOR has 2 inputs
-	config.NumClauses = 10 // Number of clauses per class
-	config.NumLiterals = 2 // Number of literals per clause (matches input features)
-	config.Threshold = 5.0 // Classification threshold
-	config.S = 3.9         // Specificity parameter
-	config.NStates = 100   // Number of states for the automata
-	config.RandomSeed = 42 // For reproducibility
-
-	// Create binary Tsetlin Machine
-	machine, err := tsetlin.NewTsetlinMachine(config)
-	if err != nil {
-		log.Fatalf("Failed to create Tsetlin Machine: %v", err)
-	}
+	config.NumFeatures = 2  // XOR has 2 inputs
+	config.NumClauses = 20  // Increased number of clauses for better learning
+	config.NumLiterals = 2  // Number of literals per clause (matches input features)
+	config.Threshold = 10.0 // Lowered threshold for better sensitivity
+	config.S = 2.5          // Adjusted specificity parameter
+	config.NStates = 100    // Number of states for the automata
+	config.NumClasses = 2   // Binary classification
+	config.RandomSeed = 42  // For reproducibility
+	config.Debug = true     // Enable debug logging
 
 	// XOR training data
 	X := [][]float64{
@@ -42,42 +38,50 @@ func RunBinaryExample() {
 	}
 	y := []int{0, 1, 1, 0}
 
+	// Create multiclass Tsetlin Machine (configured for binary classification)
+	machine, err := tsetlin.NewMultiClassTsetlinMachine(config)
+	if err != nil {
+		log.Fatalf("Failed to create Multiclass Tsetlin Machine: %v", err)
+	}
+
 	// Train the model
 	fmt.Println("Training the model...")
-	if err := machine.Fit(X, y, 100); err != nil {
+	err = machine.Fit(X, y, 100)
+	if err != nil {
 		log.Fatalf("Failed to train model: %v", err)
 	}
 
 	// Test the model
-	fmt.Println("\nTesting the model:")
+	fmt.Println("\nTesting the model...")
 	for i, input := range X {
 		result, err := machine.Predict(input)
 		if err != nil {
-			log.Printf("Error predicting for input %v: %v", input, err)
-			continue
+			log.Fatalf("Failed to make prediction: %v", err)
 		}
-
-		probs, err := machine.PredictProba(input)
-		if err != nil {
-			log.Printf("Error getting probabilities for input %v: %v", input, err)
-			continue
-		}
-
-		fmt.Printf("Input: %v\n", input)
-		fmt.Printf("True class: %d\n", y[i])
-		fmt.Printf("Predicted class: %d\n", result.PredictedClass)
-		fmt.Printf("Confidence: %.2f\n", result.Confidence)
-		fmt.Printf("Probabilities: [%.3f, %.3f]\n", probs[0], probs[1])
-		fmt.Printf("Active clauses: %d\n", len(machine.GetActiveClauses(input)[0]))
-		fmt.Println()
+		fmt.Printf("Input: %v, Expected: %d, Predicted: %d, Confidence: %.2f\n",
+			input, y[i], result.PredictedClass, result.Confidence)
 	}
 
-	// Get and print clause information
-	fmt.Println("Clause Information:")
+	// Get clause information
+	fmt.Println("\nAnalyzing learned clauses...")
 	clauseInfo := machine.GetClauseInfo()
-	for i, clause := range clauseInfo[0] {
-		fmt.Printf("Clause %d:\n", i)
-		fmt.Printf("  Literals: %v\n", clause.Literals)
-		fmt.Printf("  Is Positive: %v\n", clause.IsPositive)
+	for classIdx, classClauses := range clauseInfo {
+		fmt.Printf("\nClass %d Clauses:\n", classIdx)
+		for clauseIdx, clause := range classClauses {
+			fmt.Printf("Clause %d: ", clauseIdx)
+			if clause.IsPositive {
+				fmt.Print("Positive, ")
+			} else {
+				fmt.Print("Negative, ")
+			}
+			fmt.Printf("Match Score: %.2f, Momentum: %.2f\n", clause.MatchScore, clause.Momentum)
+			fmt.Print("Active Literals: ")
+			for i, active := range clause.Literals {
+				if active {
+					fmt.Printf("%d ", i)
+				}
+			}
+			fmt.Println()
+		}
 	}
 }

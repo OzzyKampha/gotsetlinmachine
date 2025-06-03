@@ -79,8 +79,14 @@ func main() {
 The repository includes several examples demonstrating different use cases:
 
 1. **Binary Classification** (`examples/binary/`): XOR problem with clause analysis
-2. **MNIST Classification** (`examples/mnist/`): Handwritten digit recognition
-3. **Pattern Recognition** (`examples/pattern/`): Learning and recognizing patterns
+2. **Multiclass Classification** (`examples/multiclass/`): Pattern recognition with multiple classes
+3. **Noisy XOR** (`examples/noisyXOR/`): Learning XOR with added noise (added later)
+4. **MNIST Classification** (`examples/mnist/`): Handwritten digit recognition
+
+Each example can be run using:
+```bash
+go run examples/main.go [example_name]
+```
 
 ## Configuration
 

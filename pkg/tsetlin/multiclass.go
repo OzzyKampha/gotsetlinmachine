@@ -95,6 +95,7 @@ func (mctm *MultiClassTsetlinMachine) Fit(X [][]float64, y []int, epochs int) er
 		}()
 	}
 	mctm.wg.Wait()
+	mctm.wg.Wait()
 
 	return nil
 }

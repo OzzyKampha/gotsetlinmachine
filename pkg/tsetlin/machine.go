@@ -15,7 +15,7 @@ import (
 // for binary classification using Tsetlin Automata.
 type TsetlinMachine struct {
 	config     Config
-	clauses    [][]int
+	clauses    []*BitPackedClause
 	states     [][]int
 	mu         sync.Mutex
 	randSource *rand.Rand
@@ -50,7 +50,7 @@ func NewTsetlinMachine(config Config) (*TsetlinMachine, error) {
 
 	tm := &TsetlinMachine{
 		config:             config,
-		clauses:            make([][]int, config.NumClauses),
+		clauses:            make([]*BitPackedClause, config.NumClauses),
 		states:             make([][]int, config.NumClauses),
 		randSource:         rand.New(rand.NewSource(config.RandomSeed)),
 		interestedFeatures: make([]map[int]struct{}, config.NumClauses),
@@ -58,9 +58,9 @@ func NewTsetlinMachine(config Config) (*TsetlinMachine, error) {
 		momentums:          make([]float64, config.NumClauses),
 	}
 
-	// Initialize clauses, states, and interested features
+	// Initialize clauses and states
 	for i := range tm.clauses {
-		tm.clauses[i] = make([]int, config.NumLiterals)
+		tm.clauses[i] = NewBitPackedClause(config.NumFeatures)
 		tm.states[i] = make([]int, config.NumLiterals)
 		tm.interestedFeatures[i] = make(map[int]struct{})
 		tm.matchScores[i] = 1.0 // Initialize MatchScore to 1.0
@@ -68,20 +68,18 @@ func NewTsetlinMachine(config Config) (*TsetlinMachine, error) {
 
 		// Ensure each clause has at least one active literal
 		activeLiterals := 0
-		for j := range tm.clauses[i] {
+		for j := range tm.states[i] {
 			// Randomly initialize literals with higher probability of being active
 			if tm.randSource.Float64() < 0.7 { // 70% chance of being active
-				tm.clauses[i][j] = tm.randSource.Intn(2)
-				if tm.clauses[i][j] != 0 {
+				if tm.randSource.Intn(2) == 1 {
+					tm.clauses[i].SetInclude(j, true)
 					activeLiterals++
 					tm.interestedFeatures[i][j] = struct{}{}
 				}
-			} else {
-				tm.clauses[i][j] = 0
 			}
 
 			// Initialize states with more variation
-			if tm.clauses[i][j] != 0 {
+			if tm.clauses[i].HasInclude(j) {
 				// For active literals, initialize states more towards the extremes
 				if tm.randSource.Float64() < 0.5 {
 					tm.states[i][j] = tm.randSource.Intn(config.NStates/4) + 1 // Lower states
@@ -97,7 +95,7 @@ func NewTsetlinMachine(config Config) (*TsetlinMachine, error) {
 		// If no active literals, force at least one
 		if activeLiterals == 0 {
 			j := tm.randSource.Intn(config.NumLiterals)
-			tm.clauses[i][j] = 1
+			tm.clauses[i].SetInclude(j, true)
 			tm.interestedFeatures[i][j] = struct{}{}
 			tm.states[i][j] = tm.randSource.Intn(config.NStates/4) + 3*config.NStates/4
 		}
@@ -162,10 +160,106 @@ func (tm *TsetlinMachine) Fit(X [][]float64, y []int, epochs int) error {
 				<-workerChan
 				defer func() { workerChan <- 0 }()
 
+				// Convert input to bit pattern
+				bitInput := FromFloat64Slice(X[i])
+
 				// Get prediction for current input
-				score := tm.calculateScore(X[i], y[i])
+				score := 0
+				for _, clause := range tm.clauses {
+					if clause.Match(bitInput) {
+						if clause.IsPositive {
+							score++
+						} else {
+							score--
+						}
+					}
+				}
+
 				// Update states based on feedback
-				tm.updateStates(X[i], y[i], score)
+				predictedClass := 0
+				if score < 0 {
+					predictedClass = 1
+				}
+
+				// Update states for each clause
+				for j, clause := range tm.clauses {
+					clauseOutput := 0
+					if clause.Match(bitInput) {
+						clauseOutput = 1
+					}
+
+					// Update states based on feedback
+					if clauseOutput == 1 {
+						// Update states for matching clauses
+						for k := 0; k < tm.config.NumFeatures; k++ {
+							if clause.HasInclude(k) {
+								tm.randMu.Lock()
+								shouldUpdate := tm.randSource.Float64() < 1.0/tm.config.S
+								tm.randMu.Unlock()
+
+								if shouldUpdate {
+									tm.mu.Lock()
+									if y[i] == predictedClass {
+										// Reward: move towards more extreme states
+										if tm.states[j][k] < tm.config.NStates/2 {
+											tm.states[j][k]++
+										} else {
+											tm.states[j][k] = tm.config.NStates
+										}
+									} else {
+										// Penalty: move towards middle
+										if tm.states[j][k] > tm.config.NStates/2 {
+											tm.states[j][k]--
+										} else {
+											tm.states[j][k] = 1
+										}
+									}
+									tm.mu.Unlock()
+								}
+							}
+						}
+					} else {
+						// Update states for non-matching clauses
+						for k := 0; k < tm.config.NumFeatures; k++ {
+							if clause.HasInclude(k) {
+								tm.randMu.Lock()
+								shouldUpdate := tm.randSource.Float64() < 1.0/tm.config.S
+								tm.randMu.Unlock()
+
+								if shouldUpdate {
+									tm.mu.Lock()
+									if y[i] == predictedClass {
+										// Reward: move towards middle
+										if tm.states[j][k] > tm.config.NStates/2 {
+											tm.states[j][k]--
+										} else {
+											tm.states[j][k] = 1
+										}
+									} else {
+										// Penalty: move towards more extreme states
+										if tm.states[j][k] < tm.config.NStates/2 {
+											tm.states[j][k]++
+										} else {
+											tm.states[j][k] = tm.config.NStates
+										}
+									}
+									tm.mu.Unlock()
+								}
+							}
+						}
+					}
+
+					// Update match score and momentum
+					tm.mu.Lock()
+					if clauseOutput == 1 {
+						tm.matchScores[j] = 0.9*tm.matchScores[j] + 0.1
+						tm.momentums[j] = 0.9*tm.momentums[j] + 0.1
+					} else {
+						tm.matchScores[j] = 0.9 * tm.matchScores[j]
+						tm.momentums[j] = 0.9 * tm.momentums[j]
+					}
+					tm.mu.Unlock()
+				}
 			}()
 		}
 		wg.Wait()
@@ -180,7 +274,21 @@ func (tm *TsetlinMachine) Fit(X [][]float64, y []int, epochs int) error {
 				<-workerChan
 				defer func() { workerChan <- 0 }()
 
-				score := tm.calculateScore(X[i], y[i])
+				// Convert input to bit pattern
+				bitInput := FromFloat64Slice(X[i])
+
+				// Calculate score
+				score := 0
+				for _, clause := range tm.clauses {
+					if clause.Match(bitInput) {
+						if clause.IsPositive {
+							score++
+						} else {
+							score--
+						}
+					}
+				}
+
 				predictedClass := 0
 				if score < 0 {
 					predictedClass = 1
@@ -194,310 +302,42 @@ func (tm *TsetlinMachine) Fit(X [][]float64, y []int, epochs int) error {
 		}
 
 		// Collect results
-		go func() {
-			wg.Wait()
-			close(correctChan)
-		}()
-
-		// Count correct predictions
-		for c := range correctChan {
-			correct += c
+		for i := 0; i < len(X); i++ {
+			correct += <-correctChan
 		}
 
-		// Calculate and print accuracy for this epoch with print mutex
-		accuracy := float64(correct) / float64(total)
-		tm.printMu.Lock()
-		fmt.Printf("Epoch %d/%d - Accuracy: %.2f%% (%d/%d)\n",
-			epoch+1, epochs, accuracy*100, correct, total)
-		tm.printMu.Unlock()
-
-		// Print state summary after each epoch if debug is enabled
-		if tm.config.Debug && (epoch == 0 || epoch == epochs-1) {
-			fmt.Printf("\nState summary after epoch %d:\n", epoch+1)
-			tm.printStateSummary()
+		// Print epoch summary
+		if tm.config.Debug {
+			fmt.Printf("Epoch %d/%d: Accuracy = %.2f%% (%d/%d)\n",
+				epoch+1, epochs, float64(correct)/float64(total)*100, correct, total)
 		}
 	}
 
 	return nil
 }
 
-// printStateSummary prints a summary of the current state distribution
-func (tm *TsetlinMachine) printStateSummary() {
-	// Calculate sum of states
-	var totalSum int
-	histogram := make([]int, 5) // 5 bins: 0-20, 21-40, 41-60, 61-80, 81-100
-
-	for _, clauseStates := range tm.states {
-		for _, state := range clauseStates {
-			totalSum += state
-			// Add to appropriate histogram bin
-			bin := state / 20
-			if bin > 4 {
-				bin = 4
-			}
-			histogram[bin]++
-		}
-	}
-
-	// Print summary
-	fmt.Printf("Total states sum: %d\n", totalSum)
-	fmt.Printf("State distribution:\n")
-	fmt.Printf("  0-20:  %d states\n", histogram[0])
-	fmt.Printf(" 21-40:  %d states\n", histogram[1])
-	fmt.Printf(" 41-60:  %d states\n", histogram[2])
-	fmt.Printf(" 61-80:  %d states\n", histogram[3])
-	fmt.Printf(" 81-100: %d states\n", histogram[4])
-}
-
-// canSkipClause checks if a clause can be skipped based on interested features.
-// It uses bitwise operations for efficient feature matching.
-func (tm *TsetlinMachine) canSkipClause(clauseIdx int, inputFeatures uint64) bool {
-	// Use bitwise operations for faster feature matching
-	var clauseFeatures uint64
-	for feature := range tm.interestedFeatures[clauseIdx] {
-		clauseFeatures |= 1 << feature
-	}
-
-	// If there's no overlap between clause features and input features, we can skip
-	return (clauseFeatures & inputFeatures) == 0
-}
-
-// calculateScore calculates the score for a given input with feature-based clause skipping.
-// It efficiently evaluates clauses using bitwise operations and clause skipping.
-func (tm *TsetlinMachine) calculateScore(input []float64, target int) float64 {
-	// Create input feature set using bitwise operations
-	var inputFeatures uint64
-	for i, val := range input {
-		if val == 1 {
-			inputFeatures |= 1 << i
-		}
-	}
-
-	score := 0.0
-	activeClauses := 0
-
-	for i, clause := range tm.clauses {
-		// Skip clause if none of its interested features are in the input
-		if tm.canSkipClause(i, inputFeatures) {
-			// Update MatchScore and Momentum for skipped clauses
-			tm.matchScores[i] *= 0.9 // Decay MatchScore
-			tm.momentums[i] *= 0.8   // Faster decay for inactive clauses
-			continue
-		}
-
-		// Evaluate clause only if it can't be skipped
-		clauseOutput := tm.evaluateClause(input, clause)
-
-		if clauseOutput == 1 {
-			// Update MatchScore and Momentum for matched clauses
-			tm.matchScores[i] = 0.9*tm.matchScores[i] + 0.1 // Decay + small increment
-			tm.momentums[i] = 0.8*tm.momentums[i] + 0.2     // Faster decay + increment
-
-			// Add raw score based on clause state
-			if tm.states[i][0] > tm.config.NStates/2 {
-				score += 1.0
-			} else {
-				score -= 1.0
-			}
-			activeClauses++
-		} else {
-			// Update MatchScore and Momentum for unmatched clauses
-			tm.matchScores[i] *= 0.9 // Decay MatchScore
-			tm.momentums[i] *= 0.8   // Faster decay for inactive clauses
-		}
-	}
-
-	return score
-}
-
-// calculateScoreReadOnly calculates the score for a given input with feature-based clause skipping, without mutating any state.
-func (tm *TsetlinMachine) calculateScoreReadOnly(input []float64) float64 {
-	// Create input feature set using bitwise operations
-	var inputFeatures uint64
-	for i, val := range input {
-		if val == 1 {
-			inputFeatures |= 1 << i
-		}
-	}
-
-	score := 0.0
-	for i, clause := range tm.clauses {
-		// Skip clause if none of its interested features are in the input
-		if tm.canSkipClause(i, inputFeatures) {
-			continue
-		}
-
-		// Evaluate clause only if it can't be skipped
-		clauseOutput := tm.evaluateClause(input, clause)
-		// Use current MatchScore for weighting, but do not update it
-		// Normalize MatchScore to be between 0 and 1 for weighting
-		normalizedScore := tm.matchScores[i] / (tm.matchScores[i] + 1.0) // Sigmoid-like normalization
-		if tm.states[i][0] > tm.config.NStates/2 {
-			score += float64(clauseOutput) * normalizedScore
-		} else {
-			score -= float64(clauseOutput) * normalizedScore
-		}
-	}
-	return score
-}
-
-// evaluateClause evaluates a single clause for the given input.
-// It returns 1 if the clause is satisfied, 0 otherwise.
-func (tm *TsetlinMachine) evaluateClause(input []float64, clause []int) int {
-	// Count active literals
-	activeLiterals := 0
-	matches := 0
-
-	// Check each literal against input
-	for j, literal := range clause {
-		if literal != 0 { // Count non-zero literals as active
-			activeLiterals++
-			// If literal is 1 and input is 1, or literal is 0 and input is 0, it's a match
-			if (literal == 1 && input[j] == 1) || (literal == 0 && input[j] == 0) {
-				matches++
-			}
-		}
-	}
-
-	// Require at least one active literal
-	if activeLiterals == 0 {
-		return 0
-	}
-
-	// Calculate match ratio
-	matchRatio := float64(matches) / float64(activeLiterals)
-
-	// Return 1 if match ratio is above threshold (e.g., 0.7)
-	if matchRatio >= 0.7 {
-		return 1
-	}
-	return 0
-}
-
-// updateStates updates the states of the automata based on feedback.
-// It implements Type I and Type II feedback mechanisms for learning.
-func (tm *TsetlinMachine) updateStates(input []float64, target int, score float64) {
-	updates := 0
-
-	// Type I feedback - when prediction is incorrect
-	if (target == 1 && score < tm.config.Threshold) || (target == 0 && score > -tm.config.Threshold) {
-		for i, clause := range tm.clauses {
-			clauseOutput := tm.evaluateClause(input, clause)
-
-			// Update states for both matching and non-matching clauses
-			for j := range clause {
-				tm.randMu.Lock()
-				shouldUpdate := tm.randSource.Float64() < 1.0/tm.config.S
-				tm.randMu.Unlock()
-
-				if shouldUpdate {
-					if clauseOutput == 1 {
-						// For matching clauses
-						if target == 1 {
-							// Positive feedback for positive examples
-							old := tm.states[i][j]
-							// More conservative state updates
-							if tm.states[i][j] < tm.config.NStates/2 {
-								tm.states[i][j] = min(tm.states[i][j]+1, tm.config.NStates/2)
-							} else {
-								tm.states[i][j] = min(tm.states[i][j]+1, tm.config.NStates)
-							}
-							if tm.states[i][j] != old {
-								updates++
-							}
-						} else {
-							// Negative feedback for negative examples
-							old := tm.states[i][j]
-							// More conservative state updates
-							if tm.states[i][j] > tm.config.NStates/2 {
-								tm.states[i][j] = max(tm.states[i][j]-1, tm.config.NStates/2)
-							} else {
-								tm.states[i][j] = max(tm.states[i][j]-1, 1)
-							}
-							if tm.states[i][j] != old {
-								updates++
-							}
-						}
-					} else {
-						// For non-matching clauses
-						if target == 0 {
-							// Positive feedback for negative examples
-							old := tm.states[i][j]
-							// More conservative state updates
-							if tm.states[i][j] < tm.config.NStates/2 {
-								tm.states[i][j] = min(tm.states[i][j]+1, tm.config.NStates/2)
-							} else {
-								tm.states[i][j] = min(tm.states[i][j]+1, tm.config.NStates)
-							}
-							if tm.states[i][j] != old {
-								updates++
-							}
-						} else {
-							// Negative feedback for positive examples
-							old := tm.states[i][j]
-							// More conservative state updates
-							if tm.states[i][j] > tm.config.NStates/2 {
-								tm.states[i][j] = max(tm.states[i][j]-1, tm.config.NStates/2)
-							} else {
-								tm.states[i][j] = max(tm.states[i][j]-1, 1)
-							}
-							if tm.states[i][j] != old {
-								updates++
-							}
-						}
-					}
-				}
-			}
-
-			// Update match score with decay
-			if clauseOutput == 1 {
-				tm.matchScores[i] = 0.95*tm.matchScores[i] + 0.05 // Slower decay + smaller increment
-				tm.momentums[i] = 0.9*tm.momentums[i] + 0.1       // Slower decay + smaller increment
-			} else {
-				tm.matchScores[i] *= 0.95 // Slower decay for non-matching
-				tm.momentums[i] *= 0.9    // Slower decay for non-matching
-			}
-		}
-	}
-
-	// Type II feedback - when prediction is correct
-	if (target == 1 && score >= tm.config.Threshold) || (target == 0 && score <= -tm.config.Threshold) {
-		for i, clause := range tm.clauses {
-			clauseOutput := tm.evaluateClause(input, clause)
-			if clauseOutput == 1 {
-				for j := range clause {
-					tm.randMu.Lock()
-					shouldUpdate := tm.randSource.Float64() < 1.0/tm.config.S
-					tm.randMu.Unlock()
-
-					if shouldUpdate {
-						old := tm.states[i][j]
-						// More conservative state updates for Type II feedback
-						if tm.states[i][j] > tm.config.NStates/2 {
-							tm.states[i][j] = max(tm.states[i][j]-1, tm.config.NStates/2)
-						} else {
-							tm.states[i][j] = max(tm.states[i][j]-1, 1)
-						}
-						if tm.states[i][j] != old {
-							updates++
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
 // Predict returns the prediction results for the input.
-// It includes the predicted class, confidence scores, and voting information.
+// It combines predictions from all clauses to make the final prediction.
 func (tm *TsetlinMachine) Predict(input []float64) (PredictionResult, error) {
 	if len(input) != tm.config.NumFeatures {
 		return PredictionResult{}, fmt.Errorf("input features dimension mismatch: expected %d, got %d",
 			tm.config.NumFeatures, len(input))
 	}
 
+	// Convert input to bit pattern
+	bitInput := FromFloat64Slice(input)
+
 	// Calculate raw score
-	score := tm.calculateScore(input, 1)
+	score := 0
+	for _, clause := range tm.clauses {
+		if clause.Match(bitInput) {
+			if clause.IsPositive {
+				score++
+			} else {
+				score--
+			}
+		}
+	}
 
 	// Determine predicted class
 	predictedClass := 0
@@ -510,28 +350,17 @@ func (tm *TsetlinMachine) Predict(input []float64) (PredictionResult, error) {
 	var avgMatchScore float64
 	activeClauses := 0
 
-	// Create input feature set using bitwise operations
-	var inputFeatures uint64
-	for i, val := range input {
-		if val == 1 {
-			inputFeatures |= 1 << i
-		}
-	}
-
 	// Calculate average momentum and match score for active clauses
-	for i := range tm.clauses {
-		if !tm.canSkipClause(i, inputFeatures) {
-			clauseOutput := tm.evaluateClause(input, tm.clauses[i])
-			if clauseOutput == 1 {
-				activeMomentum += tm.momentums[i]
-				avgMatchScore += tm.matchScores[i]
-				activeClauses++
-			}
+	for i, clause := range tm.clauses {
+		if clause.Match(bitInput) {
+			activeMomentum += tm.momentums[i]
+			avgMatchScore += tm.matchScores[i]
+			activeClauses++
 		}
 	}
 
 	// Calculate margin as absolute score
-	margin := math.Abs(score)
+	margin := math.Abs(float64(score))
 
 	// Calculate confidence based on margin and active clauses
 	confidence := margin / float64(tm.config.NumClauses)
@@ -542,11 +371,11 @@ func (tm *TsetlinMachine) Predict(input []float64) (PredictionResult, error) {
 	// Create votes array with raw scores, ensuring no flooring
 	votes := make([]float64, 2)
 	if predictedClass == 0 {
-		votes[0] = score  // Keep raw score for class 0
-		votes[1] = -score // Negated score for class 1
+		votes[0] = float64(score)  // Keep raw score for class 0
+		votes[1] = float64(-score) // Negated score for class 1
 	} else {
-		votes[0] = -score // Negated score for class 0
-		votes[1] = score  // Keep raw score for class 1
+		votes[0] = float64(-score) // Negated score for class 0
+		votes[1] = float64(score)  // Keep raw score for class 1
 	}
 
 	// Ensure votes are not zero if there are active clauses
@@ -615,13 +444,13 @@ func (tm *TsetlinMachine) GetClauseInfo() [][]ClauseInfo {
 
 	for i, clause := range tm.clauses {
 		info[0][i] = ClauseInfo{
-			Literals:   make([]bool, len(clause)),
-			IsPositive: tm.states[i][0] > tm.config.NStates/2,
+			Literals:   make([]bool, tm.config.NumFeatures),
+			IsPositive: clause.IsPositive,
 			MatchScore: tm.matchScores[i],
 			Momentum:   tm.momentums[i],
 		}
-		for j, literal := range clause {
-			info[0][i].Literals[j] = literal == 1
+		for j := 0; j < tm.config.NumFeatures; j++ {
+			info[0][i].Literals[j] = clause.HasInclude(j)
 		}
 	}
 
@@ -635,17 +464,18 @@ func (tm *TsetlinMachine) GetActiveClauses(input []float64) [][]ClauseInfo {
 		return nil
 	}
 
-	info := make([][]ClauseInfo, 1)
-	info[0] = make([]ClauseInfo, 0)
+	// Convert input to bit pattern
+	bitInput := FromFloat64Slice(input)
 
-	for i, clause := range tm.clauses {
-		if tm.evaluateClause(input, clause) == 1 {
+	info := make([][]ClauseInfo, 1)
+	for _, clause := range tm.clauses {
+		if clause.Match(bitInput) {
 			clauseInfo := ClauseInfo{
-				Literals:   make([]bool, len(clause)),
-				IsPositive: tm.states[i][0] > tm.config.NStates/2,
+				Literals:   make([]bool, tm.config.NumFeatures),
+				IsPositive: clause.IsPositive,
 			}
-			for j, literal := range clause {
-				clauseInfo.Literals[j] = literal == 1
+			for j := 0; j < tm.config.NumFeatures; j++ {
+				clauseInfo.Literals[j] = clause.HasInclude(j)
 			}
 			info[0] = append(info[0], clauseInfo)
 		}
@@ -654,96 +484,89 @@ func (tm *TsetlinMachine) GetActiveClauses(input []float64) [][]ClauseInfo {
 	return info
 }
 
-// min returns the smaller of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
+// canSkipClause determines if a clause can be skipped during evaluation
+// based on its current state and the input pattern.
+func (tm *TsetlinMachine) canSkipClause(clause *BitPackedClause, input BitVec) bool {
+	// Skip clause if it has no active literals
+	hasActiveLiterals := false
+	for i := 0; i < tm.config.NumFeatures; i++ {
+		if clause.HasInclude(i) {
+			hasActiveLiterals = true
+			break
+		}
 	}
-	return b
-}
-
-// max returns the larger of two integers
-func max(a, b int) int {
-	if a > b {
-		return a
+	if !hasActiveLiterals {
+		return true
 	}
-	return b
-}
 
-// Clauses returns a copy of the clauses.
-// This is useful for debugging and analysis.
-func (tm *TsetlinMachine) Clauses() [][]int {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	clauses := make([][]int, len(tm.clauses))
-	for i, clause := range tm.clauses {
-		clauses[i] = make([]int, len(clause))
-		copy(clauses[i], clause)
+	// Skip clause if it's a positive clause and none of its literals match
+	if clause.IsPositive {
+		return !clause.Match(input)
 	}
-	return clauses
+
+	// Skip clause if it's a negative clause and all of its literals match
+	return !clause.Match(input)
 }
 
-// InterestedFeatures returns the interested features for a clause.
-// This helps understand which features are used by each clause.
-func (tm *TsetlinMachine) InterestedFeatures(clauseIdx int) map[int]struct{} {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	features := make(map[int]struct{})
-	for feature := range tm.interestedFeatures[clauseIdx] {
-		features[feature] = struct{}{}
-	}
-	return features
+// evaluateClause evaluates a clause against the input pattern
+// and returns whether the clause matches.
+func (tm *TsetlinMachine) evaluateClause(clause *BitPackedClause, input BitVec) bool {
+	return clause.Match(input)
 }
 
-// CanSkipClause is an exported version of canSkipClause for testing.
-// It checks if a clause can be skipped based on the input features.
-func (tm *TsetlinMachine) CanSkipClause(clauseIdx int, inputFeatureSet map[int]struct{}) bool {
-	// Convert input feature set to bits
-	var inputFeatures uint64
-	for feature := range inputFeatureSet {
-		inputFeatures |= 1 << feature
-	}
-	return tm.canSkipClause(clauseIdx, inputFeatures)
-}
-
-// CalculateScore is an exported version of calculateScore for testing.
-// It calculates the score for a given input with feature-based clause skipping.
-func (tm *TsetlinMachine) CalculateScore(input []float64, target int) float64 {
-	return tm.calculateScore(input, target)
-}
-
-// EvaluateClause is an exported version of evaluateClause for testing.
-// It evaluates a single clause for the given input.
-func (tm *TsetlinMachine) EvaluateClause(input []float64, clause []int) int {
-	return tm.evaluateClause(input, clause)
-}
-
-// PrintStateInfo prints information about the current state of the machine
+// PrintStateInfo prints information about the current state of the machine.
 func (tm *TsetlinMachine) PrintStateInfo() {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
-	var totalSum int
-	histogram := make([]int, 5) // 5 bins: 0-20, 21-40, 41-60, 61-80, 81-100
+	fmt.Printf("Number of clauses: %d\n", len(tm.clauses))
+	fmt.Printf("Number of features: %d\n", tm.config.NumFeatures)
+	fmt.Printf("Number of states: %d\n", tm.config.NStates)
+	fmt.Printf("Threshold: %.2f\n", tm.config.Threshold)
+	fmt.Printf("Specificity: %.2f\n", tm.config.S)
 
-	for _, clauseStates := range tm.states {
-		for _, state := range clauseStates {
-			totalSum += state
-			bin := state / 20
-			if bin > 4 {
-				bin = 4
+	for i, clause := range tm.clauses {
+		fmt.Printf("\nClause %d:\n", i)
+		fmt.Printf("  Is Positive: %v\n", clause.IsPositive)
+		fmt.Printf("  Match Score: %.2f\n", tm.matchScores[i])
+		fmt.Printf("  Momentum: %.2f\n", tm.momentums[i])
+		fmt.Printf("  Active Literals: ")
+		for j := 0; j < tm.config.NumFeatures; j++ {
+			if clause.HasInclude(j) {
+				fmt.Printf("%d ", j)
 			}
-			histogram[bin]++
+		}
+		fmt.Println()
+	}
+}
+
+// printStateSummary prints a summary of the current state of the machine.
+func (tm *TsetlinMachine) printStateSummary() {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	fmt.Printf("Number of clauses: %d\n", len(tm.clauses))
+	fmt.Printf("Number of features: %d\n", tm.config.NumFeatures)
+	fmt.Printf("Number of states: %d\n", tm.config.NStates)
+	fmt.Printf("Threshold: %.2f\n", tm.config.Threshold)
+	fmt.Printf("Specificity: %.2f\n", tm.config.S)
+
+	// Count active literals per clause
+	activeLiterals := make([]int, len(tm.clauses))
+	for i, clause := range tm.clauses {
+		for j := 0; j < tm.config.NumFeatures; j++ {
+			if clause.HasInclude(j) {
+				activeLiterals[i]++
+			}
 		}
 	}
 
-	fmt.Printf("Total states sum: %d\n", totalSum)
-	fmt.Printf("State distribution:\n")
-	fmt.Printf("  0-20:  %d states\n", histogram[0])
-	fmt.Printf(" 21-40:  %d states\n", histogram[1])
-	fmt.Printf(" 41-60:  %d states\n", histogram[2])
-	fmt.Printf(" 61-80:  %d states\n", histogram[3])
-	fmt.Printf(" 81-100: %d states\n", histogram[4])
+	// Print summary statistics
+	var totalActiveLiterals int
+	for _, count := range activeLiterals {
+		totalActiveLiterals += count
+	}
+
+	fmt.Printf("\nAverage active literals per clause: %.2f\n", float64(totalActiveLiterals)/float64(len(tm.clauses)))
+	fmt.Printf("Total active literals: %d\n", totalActiveLiterals)
 }

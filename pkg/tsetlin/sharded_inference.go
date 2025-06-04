@@ -125,10 +125,10 @@ func (si *ShardedInference) PredictBatchParallelWithCallbackAndError(X [][]float
 			<-workerChan
 			defer func() { workerChan <- 0 }()
 			predictions[i] = si.Predict(X[i])
-			if err := callback(i, si.machines[predictions[i]]); err != nil {
+			if cbErr := callback(i, si.machines[predictions[i]]); cbErr != nil {
 				mu.Lock()
 				if err == nil {
-					err = err
+					err = cbErr
 				}
 				mu.Unlock()
 			}

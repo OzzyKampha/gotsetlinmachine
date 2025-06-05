@@ -241,3 +241,32 @@ func (m *MultiClassTM) Predict(X []int) int {
 	}
 	return bestClass
 }
+
+// ParallelPredict runs predictions for a batch of inputs in parallel.
+// It returns a slice of predictions, one for each input.
+func (tm *TsetlinMachine) ParallelPredict(X [][]int, numWorkers int) []int {
+	n := len(X)
+	results := make([]int, n)
+	jobs := make(chan int, n)
+	var wg sync.WaitGroup
+
+	worker := func() {
+		for i := range jobs {
+			results[i] = tm.Predict(X[i])
+		}
+		wg.Done()
+	}
+
+	wg.Add(numWorkers)
+	for w := 0; w < numWorkers; w++ {
+		go worker()
+	}
+
+	for i := 0; i < n; i++ {
+		jobs <- i
+	}
+	close(jobs)
+
+	wg.Wait()
+	return results
+}

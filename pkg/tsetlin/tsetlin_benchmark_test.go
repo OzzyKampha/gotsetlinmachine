@@ -2,6 +2,7 @@ package tsetlin
 
 import (
 	"math/rand"
+	"runtime"
 	"testing"
 )
 
@@ -150,4 +151,14 @@ func BenchmarkMultiClassTMOperations(b *testing.B) {
 			m.Fit(X, Y, 1)
 		}
 	})
+}
+
+func BenchmarkParallelPredict(b *testing.B) {
+	tm := NewTsetlinMachine(100, 50, 50, 3)
+	X, _ := generateRandomData(10000, 50)
+	numWorkers := runtime.NumCPU()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tm.ParallelPredict(X, numWorkers)
+	}
 }

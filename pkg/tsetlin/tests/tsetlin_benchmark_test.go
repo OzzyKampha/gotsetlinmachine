@@ -1,9 +1,11 @@
-package tsetlin
+package tests
 
 import (
 	"math/rand"
 	"runtime"
 	"testing"
+
+	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
 
 // generateRandomData creates random input data and labels for benchmarking
@@ -24,12 +26,12 @@ func generateRandomData(numSamples, numFeatures int) ([][]int, []int) {
 func BenchmarkBitVectorOperations(b *testing.B) {
 	b.Run("NewBitVector", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			NewBitVector(1000)
+			tsetlin.NewBitVector(1000)
 		}
 	})
 
 	b.Run("SetGet", func(b *testing.B) {
-		bv := NewBitVector(1000)
+		bv := tsetlin.NewBitVector(1000)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			idx := i % 1000
@@ -39,8 +41,8 @@ func BenchmarkBitVectorOperations(b *testing.B) {
 	})
 
 	b.Run("IsSubset", func(b *testing.B) {
-		a := NewBitVector(1000)
-		bv := NewBitVector(1000)
+		a := tsetlin.NewBitVector(1000)
+		bv := tsetlin.NewBitVector(1000)
 		for i := 0; i < 500; i++ {
 			a.Set(i)
 			bv.Set(i)
@@ -58,7 +60,7 @@ func BenchmarkBitVectorOperations(b *testing.B) {
 		}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = PackInputVector(input)
+			_ = tsetlin.PackInputVector(input)
 		}
 	})
 }
@@ -67,12 +69,12 @@ func BenchmarkBitVectorOperations(b *testing.B) {
 func BenchmarkPackedStatesOperations(b *testing.B) {
 	b.Run("NewPackedStates", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			NewPackedStates(1000)
+			tsetlin.NewPackedStates(1000)
 		}
 	})
 
 	b.Run("GetSet", func(b *testing.B) {
-		ps := NewPackedStates(1000)
+		ps := tsetlin.NewPackedStates(1000)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			idx := i % 1000
@@ -82,7 +84,7 @@ func BenchmarkPackedStatesOperations(b *testing.B) {
 	})
 
 	b.Run("IncDec", func(b *testing.B) {
-		ps := NewPackedStates(1000)
+		ps := tsetlin.NewPackedStates(1000)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			idx := i % 1000
@@ -95,22 +97,22 @@ func BenchmarkPackedStatesOperations(b *testing.B) {
 // BenchmarkTsetlinMachineOperations measures the performance of Tsetlin Machine operations
 func BenchmarkTsetlinMachineOperations(b *testing.B) {
 	// Create a Tsetlin Machine with reasonable parameters
-	tm := NewTsetlinMachine(100, 50, 50, 3)
+	tm := tsetlin.NewTsetlinMachine(100, 50, 50, 3)
 	X, Y := generateRandomData(1000, 50)
 
 	b.Run("Predict", func(b *testing.B) {
-		input := X[0]
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = tm.Predict(input)
+			_ = tm.Predict(X[0], 0).(int)
 		}
 	})
 
-	b.Run("Score", func(b *testing.B) {
-		input := X[0]
+	b.Run("EvaluateClause", func(b *testing.B) {
+		clause := tm.Clauses[0]
+		input := tsetlin.PackInputVector(X[0])
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = tm.Score(input)
+			_ = tsetlin.EvaluateClause(clause, input)
 		}
 	})
 
@@ -120,28 +122,18 @@ func BenchmarkTsetlinMachineOperations(b *testing.B) {
 			tm.Fit(X, Y, 1, 1)
 		}
 	})
-
-	b.Run("EvaluateClause", func(b *testing.B) {
-		clause := tm.Clauses[0]
-		input := PackInputVector(X[0])
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_ = EvaluateClause(clause, input)
-		}
-	})
 }
 
 // BenchmarkMultiClassTMOperations measures the performance of MultiClass TM operations
 func BenchmarkMultiClassTMOperations(b *testing.B) {
 	// Create a MultiClass TM with reasonable parameters
-	m := NewMultiClassTM(3, 100, 50, 50, 3)
+	m := tsetlin.NewMultiClassTM(3, 100, 50, 50, 3)
 	X, Y := generateRandomData(1000, 50)
 
 	b.Run("Predict", func(b *testing.B) {
-		input := X[0]
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = m.Predict(input)
+			_ = m.Predict(X[0])
 		}
 	})
 
@@ -154,11 +146,21 @@ func BenchmarkMultiClassTMOperations(b *testing.B) {
 }
 
 func BenchmarkParallelPredict(b *testing.B) {
-	tm := NewTsetlinMachine(100, 50, 50, 3)
+	tm := tsetlin.NewTsetlinMachine(100, 50, 50, 3)
 	X, _ := generateRandomData(10000, 50)
 	numWorkers := runtime.NumCPU()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		tm.ParallelPredict(X, numWorkers)
-	}
+
+	b.Run("Parallel", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = tm.Predict(X, numWorkers).([]int)
+		}
+	})
+
+	b.Run("Sequential", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = tm.Predict(X, 1).([]int)
+		}
+	})
 }

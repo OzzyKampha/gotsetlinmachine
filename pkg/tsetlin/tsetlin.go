@@ -2,6 +2,7 @@ package tsetlin
 
 import (
 	"math/rand"
+	"runtime"
 	"sync"
 )
 
@@ -123,23 +124,6 @@ func typeIIFeedback(clause *Clause, input BitVector, s int) {
 	}
 }
 
-// Predict makes a binary prediction for the input.
-// Returns 1 if the weighted sum of clause votes exceeds the threshold,
-// 0 otherwise.
-func (tm *TsetlinMachine) Predict(input []int) int {
-	bv := PackInputVector(input)
-	sum := 0.0
-	for _, c := range tm.Clauses {
-		if EvaluateClause(c, bv) {
-			sum += float64(c.Vote) * float64(c.Weight)
-		}
-	}
-	if sum >= float64(tm.VoteThreshold) {
-		return 1
-	}
-	return 0
-}
-
 // Score returns the weighted sum of clause votes for the input.
 // This can be used to get a confidence score for the prediction.
 func (tm *TsetlinMachine) Score(input []int) int {
@@ -151,6 +135,67 @@ func (tm *TsetlinMachine) Score(input []int) int {
 		}
 	}
 	return int(sum)
+}
+
+// Predict makes predictions for inputs in parallel.
+// If numWorkers is 0, it will use the number of available CPUs.
+func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int) interface{} {
+	var inputs [][]int
+	switch x := X.(type) {
+	case []int:
+		// Convert single input to batch of size 1
+		inputs = [][]int{x}
+	case [][]int:
+		inputs = x
+	default:
+		panic("Predict expects either []int or [][]int")
+	}
+
+	n := len(inputs)
+	results := make([]int, n)
+	jobs := make(chan int, n)
+	var wg sync.WaitGroup
+
+	// Use CPU count if numWorkers is 0
+	if numWorkers == 0 {
+		numWorkers = runtime.NumCPU()
+	}
+
+	worker := func() {
+		for i := range jobs {
+			bv := PackInputVector(inputs[i])
+			sum := 0.0
+			for _, c := range tm.Clauses {
+				if EvaluateClause(c, bv) {
+					sum += float64(c.Vote) * float64(c.Weight)
+				}
+			}
+			if sum >= float64(tm.VoteThreshold) {
+				results[i] = 1
+			} else {
+				results[i] = 0
+			}
+		}
+		wg.Done()
+	}
+
+	wg.Add(numWorkers)
+	for w := 0; w < numWorkers; w++ {
+		go worker()
+	}
+
+	for i := 0; i < n; i++ {
+		jobs <- i
+	}
+	close(jobs)
+
+	wg.Wait()
+
+	// Return single result for single input
+	if _, ok := X.([]int); ok {
+		return results[0]
+	}
+	return results
 }
 
 // Fit trains the Tsetlin Machine on the provided data.
@@ -166,7 +211,7 @@ func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 			if Y[i] == targetClass {
 				y = 1
 			}
-			prediction := tm.Predict(input)
+			prediction := tm.Predict(input, 0).(int)
 			feedback := y - prediction
 			for j := range tm.Clauses {
 				clause := &tm.Clauses[j]
@@ -240,33 +285,4 @@ func (m *MultiClassTM) Predict(X []int) int {
 		}
 	}
 	return bestClass
-}
-
-// ParallelPredict runs predictions for a batch of inputs in parallel.
-// It returns a slice of predictions, one for each input.
-func (tm *TsetlinMachine) ParallelPredict(X [][]int, numWorkers int) []int {
-	n := len(X)
-	results := make([]int, n)
-	jobs := make(chan int, n)
-	var wg sync.WaitGroup
-
-	worker := func() {
-		for i := range jobs {
-			results[i] = tm.Predict(X[i])
-		}
-		wg.Done()
-	}
-
-	wg.Add(numWorkers)
-	for w := 0; w < numWorkers; w++ {
-		go worker()
-	}
-
-	for i := 0; i < n; i++ {
-		jobs <- i
-	}
-	close(jobs)
-
-	wg.Wait()
-	return results
 }

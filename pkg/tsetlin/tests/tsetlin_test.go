@@ -1,8 +1,17 @@
-package tsetlin
+package tests
 
 import (
+	"math/rand"
+	"os"
 	"testing"
+
+	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
+
+func TestMain(m *testing.M) {
+	rand.Seed(42)
+	os.Exit(m.Run())
+}
 
 func TestNewTsetlinMachine(t *testing.T) {
 	tests := []struct {
@@ -19,7 +28,7 @@ func TestNewTsetlinMachine(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tm := NewTsetlinMachine(tt.numClauses, tt.numFeatures, tt.voteThreshold, tt.s)
+			tm := tsetlin.NewTsetlinMachine(tt.numClauses, tt.numFeatures, tt.voteThreshold, tt.s)
 			if len(tm.Clauses) != tt.numClauses {
 				t.Errorf("NewTsetlinMachine() clauses = %d, want %d", len(tm.Clauses), tt.numClauses)
 			}
@@ -45,21 +54,21 @@ func TestNewTsetlinMachine(t *testing.T) {
 func TestEvaluateClause(t *testing.T) {
 	tests := []struct {
 		name     string
-		clause   Clause
+		clause   tsetlin.Clause
 		input    []int
 		expected bool
 	}{
 		{
 			"empty clause",
-			Clause{},
+			tsetlin.Clause{},
 			[]int{},
 			true,
 		},
 		{
 			"simple match",
-			Clause{
-				Include: NewPackedStates(2),
-				Exclude: NewPackedStates(2),
+			tsetlin.Clause{
+				Include: tsetlin.NewPackedStates(2),
+				Exclude: tsetlin.NewPackedStates(2),
 			},
 			[]int{1, 0},
 			true,
@@ -68,8 +77,8 @@ func TestEvaluateClause(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bv := PackInputVector(tt.input)
-			if got := EvaluateClause(tt.clause, bv); got != tt.expected {
+			bv := tsetlin.PackInputVector(tt.input)
+			if got := tsetlin.EvaluateClause(tt.clause, bv); got != tt.expected {
 				t.Errorf("EvaluateClause() = %v, want %v", got, tt.expected)
 			}
 		})
@@ -77,7 +86,7 @@ func TestEvaluateClause(t *testing.T) {
 }
 
 func TestTsetlinMachinePredict(t *testing.T) {
-	tm := NewTsetlinMachine(10, 5, 5, 3)
+	tm := tsetlin.NewTsetlinMachine(10, 5, 5, 3)
 	tests := []struct {
 		name     string
 		input    []int
@@ -90,15 +99,49 @@ func TestTsetlinMachinePredict(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tm.Predict(tt.input); got != tt.expected {
+			if got := tm.Predict(tt.input, 0).(int); got != tt.expected {
 				t.Errorf("Predict() = %d, want %d", got, tt.expected)
 			}
 		})
 	}
 }
 
+func TestTsetlinMachineBatchPredict(t *testing.T) {
+	tm := tsetlin.NewTsetlinMachine(10, 5, 5, 3)
+	tests := []struct {
+		name     string
+		inputs   [][]int
+		expected []int
+	}{
+		{
+			"multiple inputs",
+			[][]int{
+				{0, 0, 0, 0, 0},
+				{1, 1, 1, 1, 1},
+				{1, 0, 1, 0, 1},
+			},
+			[]int{0, 0, 0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tm.Predict(tt.inputs, 0).([]int)
+			if len(got) != len(tt.expected) {
+				t.Errorf("Predict() returned %d results, want %d", len(got), len(tt.expected))
+				return
+			}
+			for i := range got {
+				if got[i] != tt.expected[i] {
+					t.Errorf("Predict()[%d] = %d, want %d", i, got[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
 func TestTsetlinMachineFit(t *testing.T) {
-	tm := NewTsetlinMachine(10, 5, 5, 3)
+	tm := tsetlin.NewTsetlinMachine(10, 5, 5, 3)
 	X := [][]int{
 		{1, 0, 1, 0, 1},
 		{0, 1, 0, 1, 0},
@@ -131,7 +174,7 @@ func TestNewMultiClassTM(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := NewMultiClassTM(tt.numClasses, tt.numClauses, tt.numFeatures, tt.threshold, tt.s)
+			m := tsetlin.NewMultiClassTM(tt.numClasses, tt.numClauses, tt.numFeatures, tt.threshold, tt.s)
 			if len(m.Classes) != tt.numClasses {
 				t.Errorf("NewMultiClassTM() classes = %d, want %d", len(m.Classes), tt.numClasses)
 			}
@@ -154,7 +197,7 @@ func TestNewMultiClassTM(t *testing.T) {
 }
 
 func TestMultiClassTMPredict(t *testing.T) {
-	m := NewMultiClassTM(3, 10, 5, 5, 3)
+	m := tsetlin.NewMultiClassTM(3, 10, 5, 5, 3)
 	tests := []struct {
 		name     string
 		input    []int
@@ -175,7 +218,7 @@ func TestMultiClassTMPredict(t *testing.T) {
 }
 
 func TestMultiClassTMFit(t *testing.T) {
-	m := NewMultiClassTM(3, 10, 5, 5, 3)
+	m := tsetlin.NewMultiClassTM(3, 10, 5, 5, 3)
 	X := [][]int{
 		{1, 0, 1, 0, 1},
 		{0, 1, 0, 1, 0},

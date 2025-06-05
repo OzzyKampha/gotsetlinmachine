@@ -5,33 +5,77 @@ package main
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
 
-func main() {
-	// Create configuration for multiclass classification
-	config := tsetlin.DefaultConfig()
-	config.NumFeatures = 4  // Number of input features
-	config.NumClasses = 3   // Number of classes
-	config.NumClauses = 20  // Number of clauses per class
-	config.NumLiterals = 4  // Number of literals per clause
-	config.Threshold = 10.0 // Classification threshold
-	config.S = 3.9          // Specificity parameter
-	config.NStates = 100    // Number of states for the automata
-	config.RandomSeed = 42  // For reproducibility
-	config.Debug = true     // Enable debug logging
-
-	// Create multiclass Tsetlin Machine
-	machine, err := tsetlin.NewMultiClassTsetlinMachine(config)
-	if err != nil {
-		log.Fatalf("Failed to create Multiclass Tsetlin Machine: %v", err)
+func calculateMetrics(predictions, actual []int, numClasses int) (float64, []float64, []float64, []float64) {
+	// Initialize confusion matrix
+	confusion := make([][]int, numClasses)
+	for i := range confusion {
+		confusion[i] = make([]int, numClasses)
 	}
 
+	// Fill confusion matrix
+	for i := range predictions {
+		confusion[actual[i]][predictions[i]]++
+	}
+
+	// Calculate metrics for each class
+	precision := make([]float64, numClasses)
+	recall := make([]float64, numClasses)
+	f1 := make([]float64, numClasses)
+
+	for i := 0; i < numClasses; i++ {
+		// True positives
+		tp := confusion[i][i]
+
+		// False positives (sum of column i except diagonal)
+		fp := 0
+		for j := 0; j < numClasses; j++ {
+			if j != i {
+				fp += confusion[j][i]
+			}
+		}
+
+		// False negatives (sum of row i except diagonal)
+		fn := 0
+		for j := 0; j < numClasses; j++ {
+			if j != i {
+				fn += confusion[i][j]
+			}
+		}
+
+		// Calculate precision
+		if tp+fp > 0 {
+			precision[i] = float64(tp) / float64(tp+fp)
+		}
+
+		// Calculate recall
+		if tp+fn > 0 {
+			recall[i] = float64(tp) / float64(tp+fn)
+		}
+
+		// Calculate F1 score
+		if precision[i]+recall[i] > 0 {
+			f1[i] = 2 * (precision[i] * recall[i]) / (precision[i] + recall[i])
+		}
+	}
+
+	// Calculate macro-average F1
+	macroF1 := 0.0
+	for i := range f1 {
+		macroF1 += f1[i]
+	}
+	macroF1 /= float64(numClasses)
+
+	return macroF1, precision, recall, f1
+}
+
+func main() {
 	// Training data for pattern recognition
 	// Each pattern is represented by 4 binary features
-	X := [][]float64{
+	X := [][]int{
 		// Pattern 1: [1,1,0,0] -> Class 0
 		{1, 1, 0, 0},
 		{1, 1, 0, 1},
@@ -47,49 +91,43 @@ func main() {
 	}
 	y := []int{0, 0, 0, 1, 1, 1, 2, 2, 2}
 
+	// Create multiclass Tsetlin Machine
+	numClasses := 3
+	numClauses := 1000 // Number of clauses per class
+	numFeatures := 4   // Number of input features
+	threshold := 500   // Classification threshold
+	s := 3             // Specificity parameter
+
+	machine := tsetlin.NewMultiClassTM(numClasses, numClauses, numFeatures, threshold, s)
+
 	// Train the model
 	fmt.Println("Training the model...")
-	err = machine.Fit(X, y, 10)
-	if err != nil {
-		log.Fatalf("Failed to train model: %v", err)
-	}
+	machine.Fit(X, y, 10000)
 
-	// Test the model
+	// Test the model and calculate metrics
 	fmt.Println("\nTesting the model...")
+	predictions := make([]int, len(X))
+	correct := 0
 	for i, input := range X {
-		result, err := machine.Predict(input)
-		if err != nil {
-			log.Fatalf("Failed to make prediction: %v", err)
+		predicted := machine.Predict(input)
+		predictions[i] = predicted
+		fmt.Printf("Input: %v, Expected: %d, Predicted: %d\n",
+			input, y[i], predicted)
+		if predicted == y[i] {
+			correct++
 		}
-		fmt.Printf("Input: %v, Expected: %d, Predicted: %d, Confidence: %.2f\n",
-			input, y[i], result.PredictedClass, result.Confidence)
 	}
+	accuracy := float64(correct) / float64(len(X)) * 100
+	fmt.Printf("\nAccuracy: %.2f%% (%d/%d correct)\n", accuracy, correct, len(X))
 
-	// Analyze learned clauses
-	fmt.Println("\nAnalyzing learned clauses...")
-	clauseInfo := machine.GetClauseInfo()
-	for classIdx, classClauses := range clauseInfo {
-		fmt.Printf("\nClass %d Clauses:\n", classIdx)
-		activeClauses := 0
-		for _, clause := range classClauses {
-			activeLiterals := 0
-			for _, active := range clause.Literals {
-				if active {
-					activeLiterals++
-				}
-			}
-			if activeLiterals > 0 {
-				activeClauses++
-			}
-		}
-		fmt.Printf("Active Clauses: %d/%d\n", activeClauses, len(classClauses))
+	// Calculate and display detailed metrics
+	macroF1, precision, recall, f1 := calculateMetrics(predictions, y, numClasses)
+	fmt.Println("\nDetailed Metrics:")
+	for i := 0; i < numClasses; i++ {
+		fmt.Printf("Class %d:\n", i)
+		fmt.Printf("  Precision: %.2f%%\n", precision[i]*100)
+		fmt.Printf("  Recall: %.2f%%\n", recall[i]*100)
+		fmt.Printf("  F1 Score: %.2f%%\n", f1[i]*100)
 	}
-}
-
-// Helper function for min
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+	fmt.Printf("\nMacro-average F1 Score: %.2f%%\n", macroF1*100)
 }

@@ -26,15 +26,15 @@ func NewTsetlinMachine(numClauses, numFeatures, voteThreshold, s int) *TsetlinMa
 		exclude := NewPackedStates(numFeatures)
 		for j := 0; j < numFeatures; j++ {
 			val := ActivationThreshold - 10 + rand.Intn(20)
-			include.set(j, uint16(val))
-			exclude.set(j, uint16(val))
+			include.Set(j, uint16(val))
+			exclude.Set(j, uint16(val))
 		}
 		tm.Clauses[i] = Clause{
-			include:     include,
-			exclude:     exclude,
+			Include:     include,
+			Exclude:     exclude,
 			Vote:        1 - 2*(i%2),
 			Weight:      1.0,
-			dropoutProb: 0.0,
+			DropoutProb: 0.0,
 		}
 	}
 	return tm
@@ -44,7 +44,7 @@ func NewTsetlinMachine(numClauses, numFeatures, voteThreshold, s int) *TsetlinMa
 // A clause is satisfied if all its included literals are present and all its
 // excluded literals are absent in the input.
 func EvaluateClause(c Clause, input BitVector) bool {
-	if rand.Float32() < c.dropoutProb {
+	if rand.Float32() < c.DropoutProb {
 		return false
 	}
 	for w := 0; w < len(input); w++ {
@@ -55,7 +55,7 @@ func EvaluateClause(c Clause, input BitVector) bool {
 		for bit := 0; bit < wordSize; bit++ {
 			if (word>>bit)&1 == 1 {
 				idx := w*wordSize + bit
-				if idx < len(c.exclude)*4 && c.exclude.get(idx) >= ActivationThreshold {
+				if idx < len(c.Exclude)*4 && c.Exclude.Get(idx) >= ActivationThreshold {
 					return false
 				}
 			}
@@ -69,7 +69,7 @@ func EvaluateClause(c Clause, input BitVector) bool {
 		for bit := 0; bit < wordSize; bit++ {
 			if (notWord>>bit)&1 == 1 {
 				idx := w*wordSize + bit
-				if idx < len(c.include)*4 && c.include.get(idx) >= ActivationThreshold {
+				if idx < len(c.Include)*4 && c.Include.Get(idx) >= ActivationThreshold {
 					return false
 				}
 			}
@@ -86,16 +86,16 @@ func typeIFeedback(clause *Clause, input BitVector, s int) {
 		word := input[w]
 		for bit := 0; bit < wordSize; bit++ {
 			idx := w*wordSize + bit
-			if idx < len(clause.include)*4 {
+			if idx < len(clause.Include)*4 {
 				if (word>>bit)&1 == 1 {
 					if rand.Float32() < 1.0/float32(s) {
-						clause.include.inc(idx)
-						clause.exclude.dec(idx)
+						clause.Include.Inc(idx)
+						clause.Exclude.Dec(idx)
 					}
 				} else {
 					if rand.Float32() < 1.0/float32(s) {
-						clause.exclude.inc(idx)
-						clause.include.dec(idx)
+						clause.Exclude.Inc(idx)
+						clause.Include.Dec(idx)
 					}
 				}
 			}
@@ -111,11 +111,11 @@ func typeIIFeedback(clause *Clause, input BitVector, s int) {
 		word := input[w]
 		for bit := 0; bit < wordSize; bit++ {
 			idx := w*wordSize + bit
-			if idx < len(clause.include)*4 {
+			if idx < len(clause.Include)*4 {
 				if (word>>bit)&1 == 1 {
 					if rand.Float32() < 1.0/float32(s) {
-						clause.include.dec(idx)
-						clause.exclude.dec(idx)
+						clause.Include.Dec(idx)
+						clause.Exclude.Dec(idx)
 					}
 				}
 			}

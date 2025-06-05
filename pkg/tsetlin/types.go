@@ -34,10 +34,10 @@ type PackedStates []uint64
 // contributes to the final prediction.
 type Clause struct {
 	// include contains the states of automata for included literals
-	include PackedStates
+	Include PackedStates
 
 	// exclude contains the states of automata for excluded literals
-	exclude PackedStates
+	Exclude PackedStates
 
 	// Vote determines whether the clause votes for or against the positive class
 	// (1 for positive, -1 for negative)
@@ -48,7 +48,7 @@ type Clause struct {
 
 	// dropoutProb is the probability of dropping out this clause during training
 	// to prevent overfitting
-	dropoutProb float32
+	DropoutProb float32
 }
 
 // TsetlinMachine represents a single Tsetlin Machine classifier.

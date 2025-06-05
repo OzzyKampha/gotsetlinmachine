@@ -22,12 +22,12 @@ func main() {
 		2,
 		500, // numClauses
 		2,   // numFeatures
-		15,  // T threshold (votes)
+		250, // T threshold (votes)
 		3,   // s parameter
 	)
 
 	// Train on the dataset
-	tm.Fit(X, Y, 400) // Train to recognize class=1
+	tm.Fit(X, Y, 1000) // Train to recognize class=1
 
 	// Predict on new inputs
 	for _, x := range X {

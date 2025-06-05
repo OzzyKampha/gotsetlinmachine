@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
@@ -97,12 +98,34 @@ func main() {
 	numFeatures := 4   // Number of input features
 	threshold := 500   // Classification threshold
 	s := 3             // Specificity parameter
+	dropoutProb := 0.2 // Probability of dropping a clause during training
 
 	machine := tsetlin.NewMultiClassTM(numClasses, numClauses, numFeatures, threshold, s)
 
-	// Train the model
+	// Train the model with dropout
 	fmt.Println("Training the model...")
-	machine.Fit(X, y, 10000)
+	for epoch := 0; epoch < 1000; epoch++ {
+		// Apply dropout for this epoch
+		activeClauses := make([][]bool, numClasses)
+		for i := range activeClauses {
+			activeClauses[i] = make([]bool, numClauses)
+			for j := range activeClauses[i] {
+				activeClauses[i][j] = rand.Float64() > dropoutProb
+			}
+		}
+
+		// Train with dropout
+		for i, input := range X {
+			targetClass := y[i]
+			for class := 0; class < numClasses; class++ {
+				// Skip dropped clauses
+				if !activeClauses[class][i%numClauses] {
+					continue
+				}
+				machine.Classes[class].Fit([][]int{input}, []int{targetClass}, class, 1)
+			}
+		}
+	}
 
 	// Test the model and calculate metrics
 	fmt.Println("\nTesting the model...")

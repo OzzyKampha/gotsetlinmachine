@@ -79,9 +79,11 @@ func (ps PackedStates) dec(i int) {
 }
 
 type Clause struct {
-	include PackedStates
-	exclude PackedStates
-	Vote    int
+	include     PackedStates
+	exclude     PackedStates
+	Vote        int
+	Weight      float32
+	dropoutProb float32
 }
 
 type TsetlinMachine struct {
@@ -101,6 +103,7 @@ func NewTsetlinMachine(numClauses, numFeatures, voteThreshold, s int) *TsetlinMa
 		VoteThreshold: voteThreshold,
 		S:             s,
 	}
+
 	for i := range tm.Clauses {
 		include := NewPackedStates(numFeatures)
 		exclude := NewPackedStates(numFeatures)
@@ -110,9 +113,11 @@ func NewTsetlinMachine(numClauses, numFeatures, voteThreshold, s int) *TsetlinMa
 			exclude.set(j, uint16(val))
 		}
 		tm.Clauses[i] = Clause{
-			include: include,
-			exclude: exclude,
-			Vote:    1 - 2*(i%2),
+			include:     include,
+			exclude:     exclude,
+			Vote:        1 - 2*(i%2),
+			Weight:      1.0,
+			dropoutProb: 0.0,
 		}
 	}
 	return tm
@@ -129,6 +134,9 @@ func PackInputVector(input []int) BitVector {
 }
 
 func EvaluateClause(c Clause, input BitVector) bool {
+	if rand.Float32() < c.dropoutProb {
+		return false
+	}
 	for w := 0; w < len(input); w++ {
 		word := input[w]
 		if word == 0 {
@@ -201,13 +209,13 @@ func typeIIFeedback(clause *Clause, input BitVector, s int) {
 
 func (tm *TsetlinMachine) Predict(input []int) int {
 	bv := PackInputVector(input)
-	sum := 0
+	sum := 0.0
 	for _, c := range tm.Clauses {
 		if EvaluateClause(c, bv) {
-			sum += c.Vote
+			sum += float64(c.Vote) * float64(c.Weight)
 		}
 	}
-	if sum >= tm.VoteThreshold {
+	if sum >= float64(tm.VoteThreshold) {
 		return 1
 	}
 	return 0
@@ -215,13 +223,13 @@ func (tm *TsetlinMachine) Predict(input []int) int {
 
 func (tm *TsetlinMachine) Score(input []int) int {
 	bv := PackInputVector(input)
-	sum := 0
+	sum := 0.0
 	for _, c := range tm.Clauses {
 		if EvaluateClause(c, bv) {
-			sum += c.Vote
+			sum += float64(c.Vote) * float64(c.Weight)
 		}
 	}
-	return sum
+	return int(sum)
 }
 
 func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
@@ -237,12 +245,26 @@ func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 			for j := range tm.Clauses {
 				clause := &tm.Clauses[j]
 				fType := feedback * clause.Vote
+				bv := PackInputVector(input)
+
 				if fType == 1 {
-					bv := PackInputVector(input)
 					typeIFeedback(clause, bv, tm.S)
+					// Reinforce clause if it fired correctly
+					if EvaluateClause(*clause, bv) {
+						clause.Weight += 0.01
+						if clause.Weight > 3.0 {
+							clause.Weight = 3.0
+						}
+					}
 				} else if fType == -1 {
-					bv := PackInputVector(input)
 					typeIIFeedback(clause, bv, tm.S)
+					// Decay clause if it misfired
+					if EvaluateClause(*clause, bv) {
+						clause.Weight -= 0.01
+						if clause.Weight < 0.1 {
+							clause.Weight = 0.1
+						}
+					}
 				}
 			}
 		}

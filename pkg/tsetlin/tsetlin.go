@@ -230,10 +230,10 @@ func (m *MultiClassTM) Fit(X [][]int, Y []int, epochs int) {
 // Predict makes a multiclass prediction for the input.
 // Returns the class with the highest score.
 func (m *MultiClassTM) Predict(X []int) int {
-	bestClass := -1
-	bestScore := -1 << 30
-	for class, tm := range m.Classes {
-		score := tm.Score(X)
+	bestClass := 0
+	bestScore := m.Classes[0].Score(X)
+	for class := 1; class < len(m.Classes); class++ {
+		score := m.Classes[class].Score(X)
 		if score > bestScore {
 			bestScore = score
 			bestClass = class

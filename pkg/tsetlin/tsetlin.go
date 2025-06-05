@@ -1,4 +1,3 @@
-// tsetlin_machine_clause_skipping.go
 package tsetlin
 
 import (
@@ -6,93 +5,11 @@ import (
 	"sync"
 )
 
-const (
-	wordSize            = 64
-	T                   = 100                // Used for prediction decision
-	stateMax            = 199                // Defines automaton state range [0, stateMax]
-	ActivationThreshold = (stateMax + 1) / 2 // Used for automaton activation threshold
-)
-
-type BitVector []uint64
-
-func NewBitVector(size int) BitVector {
-	return make(BitVector, (size+wordSize-1)/wordSize)
-}
-
-func (bv BitVector) Set(idx int) {
-	bv[idx/wordSize] |= 1 << (idx % wordSize)
-}
-
-func (bv BitVector) Get(idx int) bool {
-	return (bv[idx/wordSize] & (1 << (idx % wordSize))) != 0
-}
-
-func (bv BitVector) IsSubsetOf(other BitVector) bool {
-	for i := 0; i < len(bv); i++ {
-		if (bv[i] & other[i]) != bv[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func (bv BitVector) InvertedSubsetOf(other BitVector) bool {
-	for i := 0; i < len(bv); i++ {
-		if (^other[i] & bv[i]) != bv[i] {
-			return false
-		}
-	}
-	return true
-}
-
-type PackedStates []uint64
-
-func NewPackedStates(size int) PackedStates {
-	return make(PackedStates, (size*16+63)/64) // 16 bits per state
-}
-
-func (ps PackedStates) get(i int) uint16 {
-	word := (i * 16) / 64
-	shift := (i * 16) % 64
-	return uint16((ps[word] >> shift) & 0xFFFF)
-}
-
-func (ps PackedStates) set(i int, val uint16) {
-	word := (i * 16) / 64
-	shift := (i * 16) % 64
-	ps[word] &^= 0xFFFF << shift
-	ps[word] |= uint64(val) << shift
-}
-
-func (ps PackedStates) inc(i int) {
-	val := ps.get(i)
-	if val < stateMax {
-		ps.set(i, val+1)
-	}
-}
-
-func (ps PackedStates) dec(i int) {
-	val := ps.get(i)
-	if val > 0 {
-		ps.set(i, val-1)
-	}
-}
-
-type Clause struct {
-	include     PackedStates
-	exclude     PackedStates
-	Vote        int
-	Weight      float32
-	dropoutProb float32
-}
-
-type TsetlinMachine struct {
-	Clauses       []Clause
-	NumFeatures   int
-	VoteThreshold int
-	S             int
-}
-
+// NewTsetlinMachine creates a new Tsetlin Machine with the specified parameters.
+// numClauses: number of clauses in the machine
+// numFeatures: number of input features
+// voteThreshold: minimum number of votes required for positive prediction (-1 for default)
+// s: specificity parameter that controls the probability of type I feedback
 func NewTsetlinMachine(numClauses, numFeatures, voteThreshold, s int) *TsetlinMachine {
 	if voteThreshold == -1 {
 		voteThreshold = numClauses / 2
@@ -123,16 +40,9 @@ func NewTsetlinMachine(numClauses, numFeatures, voteThreshold, s int) *TsetlinMa
 	return tm
 }
 
-func PackInputVector(input []int) BitVector {
-	bv := NewBitVector(len(input))
-	for i, bit := range input {
-		if bit != 0 {
-			bv.Set(i)
-		}
-	}
-	return bv
-}
-
+// EvaluateClause determines if a clause is satisfied by the input.
+// A clause is satisfied if all its included literals are present and all its
+// excluded literals are absent in the input.
 func EvaluateClause(c Clause, input BitVector) bool {
 	if rand.Float32() < c.dropoutProb {
 		return false
@@ -168,6 +78,9 @@ func EvaluateClause(c Clause, input BitVector) bool {
 	return true
 }
 
+// typeIFeedback applies type I feedback to a clause.
+// Type I feedback is used to reinforce correct predictions by strengthening
+// the association between literals and their clauses.
 func typeIFeedback(clause *Clause, input BitVector, s int) {
 	for w := 0; w < len(input); w++ {
 		word := input[w]
@@ -190,6 +103,9 @@ func typeIFeedback(clause *Clause, input BitVector, s int) {
 	}
 }
 
+// typeIIFeedback applies type II feedback to a clause.
+// Type II feedback is used to correct incorrect predictions by weakening
+// the association between literals and their clauses.
 func typeIIFeedback(clause *Clause, input BitVector, s int) {
 	for w := 0; w < len(input); w++ {
 		word := input[w]
@@ -207,6 +123,9 @@ func typeIIFeedback(clause *Clause, input BitVector, s int) {
 	}
 }
 
+// Predict makes a binary prediction for the input.
+// Returns 1 if the weighted sum of clause votes exceeds the threshold,
+// 0 otherwise.
 func (tm *TsetlinMachine) Predict(input []int) int {
 	bv := PackInputVector(input)
 	sum := 0.0
@@ -221,6 +140,8 @@ func (tm *TsetlinMachine) Predict(input []int) int {
 	return 0
 }
 
+// Score returns the weighted sum of clause votes for the input.
+// This can be used to get a confidence score for the prediction.
 func (tm *TsetlinMachine) Score(input []int) int {
 	bv := PackInputVector(input)
 	sum := 0.0
@@ -232,6 +153,11 @@ func (tm *TsetlinMachine) Score(input []int) int {
 	return int(sum)
 }
 
+// Fit trains the Tsetlin Machine on the provided data.
+// X: input features
+// Y: target labels
+// targetClass: the class to learn (1 for positive, 0 for negative)
+// epochs: number of training epochs
 func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 	for epoch := 0; epoch < epochs; epoch++ {
 		for i := range X {
@@ -271,10 +197,12 @@ func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 	}
 }
 
-type MultiClassTM struct {
-	Classes []*TsetlinMachine
-}
-
+// NewMultiClassTM creates a new multiclass Tsetlin Machine.
+// numClasses: number of classes to classify
+// numClauses: number of clauses per class
+// numFeatures: number of input features
+// threshold: vote threshold for each binary classifier
+// s: specificity parameter
 func NewMultiClassTM(numClasses, numClauses, numFeatures, threshold, s int) *MultiClassTM {
 	m := &MultiClassTM{
 		Classes: make([]*TsetlinMachine, numClasses),
@@ -285,6 +213,8 @@ func NewMultiClassTM(numClasses, numClauses, numFeatures, threshold, s int) *Mul
 	return m
 }
 
+// Fit trains the multiclass Tsetlin Machine on the provided data.
+// Training is performed in parallel for each class.
 func (m *MultiClassTM) Fit(X [][]int, Y []int, epochs int) {
 	var wg sync.WaitGroup
 	for class := 0; class < len(m.Classes); class++ {
@@ -297,6 +227,8 @@ func (m *MultiClassTM) Fit(X [][]int, Y []int, epochs int) {
 	wg.Wait()
 }
 
+// Predict makes a multiclass prediction for the input.
+// Returns the class with the highest score.
 func (m *MultiClassTM) Predict(X []int) int {
 	bestClass := -1
 	bestScore := -1 << 30

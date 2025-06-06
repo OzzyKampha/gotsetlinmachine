@@ -5,7 +5,6 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
@@ -98,7 +97,7 @@ func main() {
 	numFeatures := 4   // Number of input features
 	threshold := 500   // Classification threshold
 	s := 3             // Specificity parameter
-	dropoutProb := 0.2 // Probability of dropping a clause during training
+	//dropoutProb := 0.2 // Probability of dropping a clause during training
 
 	machine := tsetlin.NewMultiClassTM(numClasses, numClauses, numFeatures, threshold, s)
 
@@ -106,37 +105,21 @@ func main() {
 	fmt.Println("Training the model...")
 	for epoch := 0; epoch < 1000; epoch++ {
 		// Apply dropout for this epoch
-		activeClauses := make([][]bool, numClasses)
-		for i := range activeClauses {
-			activeClauses[i] = make([]bool, numClauses)
-			for j := range activeClauses[i] {
-				activeClauses[i][j] = rand.Float64() > dropoutProb
-			}
-		}
 
-		// Train with dropout
-		for i, input := range X {
-			targetClass := y[i]
-			for class := 0; class < numClasses; class++ {
-				// Skip dropped clauses
-				if !activeClauses[class][i%numClauses] {
-					continue
-				}
-				machine.Classes[class].Fit([][]int{input}, []int{targetClass}, class, 1)
-			}
-		}
+		machine.Fit(X, y, 1)
 	}
 
 	// Test the model and calculate metrics
 	fmt.Println("\nTesting the model...")
 	predictions := make([]int, len(X))
 	correct := 0
-	for i, input := range X {
-		predicted := machine.Predict(input)
-		predictions[i] = predicted
+
+	prediction := machine.PredictBatch(X)
+	for i := range X {
+		predictions[i] = prediction[i]
 		fmt.Printf("Input: %v, Expected: %d, Predicted: %d\n",
-			input, y[i], predicted)
-		if predicted == y[i] {
+			X[i], y[i], prediction[i])
+		if prediction[i] == y[i] {
 			correct++
 		}
 	}

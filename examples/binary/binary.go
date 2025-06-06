@@ -15,11 +15,11 @@ func main() {
 		{0, 1},
 		{0, 0},
 	}
-	Y := []int{0, 0, 0, 0} // Only {1,1} → 1
+	Y := []int{1, 0, 0, 2} // Only {1,1} → 1
 
 	// Create Tsetlin Machine (binary classifier)
 	tm := tsetlin.NewMultiClassTM(
-		2,
+		3,
 		500, // numClauses
 		2,   // numFeatures
 		250, // T threshold (votes)
@@ -30,8 +30,18 @@ func main() {
 	tm.Fit(X, Y, 1000) // Train to recognize class=1
 
 	// Predict on new inputs
-	for _, x := range X {
-		pred := tm.Predict(x)
-		fmt.Printf("Input: %v → Prediction: %d\n", x, pred)
+
+	pred := tm.PredictBatch(X)
+
+	fmt.Printf("Input: %v → Prediction: %d\n", X, pred)
+
+	correct := 0
+	for i := range Y {
+		if Y[i] == pred[i] {
+			correct++
+		}
+		fmt.Printf("Input: %v, Expected: %d, Predicted: %d\n",
+			X, Y[i], pred[i])
 	}
+
 }

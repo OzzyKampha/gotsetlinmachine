@@ -69,7 +69,7 @@ type TsetlinMachine struct {
 
 // MultiClassTM represents a multiclass Tsetlin Machine classifier.
 // It consists of multiple binary Tsetlin Machines, one for each class.
-type MultiClassTM struct {
-	// Classes contains one Tsetlin Machine for each class
-	Classes []*TsetlinMachine
-}
+// type MultiClassTM struct {
+// 	// Classes contains one Tsetlin Machine for each class
+// 	Classes []*TsetlinMachine
+// }

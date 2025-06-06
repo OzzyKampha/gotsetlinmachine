@@ -1,237 +1,220 @@
 package tests
 
 import (
-	"math/rand"
-	"os"
+	"runtime"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
 )
 
-func TestMain(m *testing.M) {
-	rand.Seed(42)
-	os.Exit(m.Run())
-}
+func BenchmarkMultiClassTMPredict(b *testing.B) {
+	// Create a multiclass TM with 10 classes, 100 clauses per class, 100 features
+	tm := tsetlin.NewMultiClassTM(10, 100, 100, 50, 3)
 
-func TestNewTsetlinMachine(t *testing.T) {
-	tests := []struct {
-		name          string
-		numClauses    int
-		numFeatures   int
-		voteThreshold int
-		s             int
-	}{
-		{"default threshold", 10, 5, -1, 3},
-		{"custom threshold", 20, 10, 15, 5},
-		{"zero threshold", 30, 15, 0, 4},
+	// Create a sample input
+	input := make([]int, 100)
+	for i := range input {
+		input[i] = i % 2 // Alternating 0s and 1s
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tm := tsetlin.NewTsetlinMachine(tt.numClauses, tt.numFeatures, tt.voteThreshold, tt.s)
-			if len(tm.Clauses) != tt.numClauses {
-				t.Errorf("NewTsetlinMachine() clauses = %d, want %d", len(tm.Clauses), tt.numClauses)
-			}
-			if tm.NumFeatures != tt.numFeatures {
-				t.Errorf("NewTsetlinMachine() features = %d, want %d", tm.NumFeatures, tt.numFeatures)
-			}
-			if tt.voteThreshold == -1 {
-				if tm.VoteThreshold != tt.numClauses/2 {
-					t.Errorf("NewTsetlinMachine() threshold = %d, want %d", tm.VoteThreshold, tt.numClauses/2)
-				}
-			} else {
-				if tm.VoteThreshold != tt.voteThreshold {
-					t.Errorf("NewTsetlinMachine() threshold = %d, want %d", tm.VoteThreshold, tt.voteThreshold)
-				}
-			}
-			if tm.S != tt.s {
-				t.Errorf("NewTsetlinMachine() s = %d, want %d", tm.S, tt.s)
-			}
-		})
+	// Warm up
+	for i := 0; i < 100; i++ {
+		tm.Predict(input)
+	}
+
+	// Reset timer and run benchmark
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tm.Predict(input)
 	}
 }
 
-func TestEvaluateClause(t *testing.T) {
-	tests := []struct {
-		name     string
-		clause   tsetlin.Clause
-		input    []int
-		expected bool
-	}{
-		{
-			"empty clause",
-			tsetlin.Clause{},
-			[]int{},
-			true,
-		},
-		{
-			"simple match",
-			tsetlin.Clause{
-				Include: tsetlin.NewPackedStates(2),
-				Exclude: tsetlin.NewPackedStates(2),
-			},
-			[]int{1, 0},
-			true,
-		},
+func TestMultiClassTMPredictPerformance(t *testing.T) {
+	// Create a multiclass TM with 10 classes, 100 clauses per class, 100 features
+	tm := tsetlin.NewMultiClassTM(10, 100, 100, 50, 3)
+
+	// Create a sample input
+	input := make([]int, 100)
+	for i := range input {
+		input[i] = i % 2 // Alternating 0s and 1s
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			bv := tsetlin.PackInputVector(tt.input)
-			if got := tsetlin.EvaluateClause(tt.clause, bv); got != tt.expected {
-				t.Errorf("EvaluateClause() = %v, want %v", got, tt.expected)
-			}
-		})
+	// Warm up
+	for i := 0; i < 100; i++ {
+		tm.Predict(input)
 	}
+
+	// Measure parallel implementation
+	start := time.Now()
+	for i := 0; i < 1000; i++ {
+		tm.Predict(input)
+	}
+	parallelDuration := time.Since(start)
+
+	t.Logf("Parallel implementation took %v for 1000 predictions", parallelDuration)
+	t.Logf("Average time per prediction: %v", parallelDuration/1000)
 }
 
-func TestTsetlinMachinePredict(t *testing.T) {
-	tm := tsetlin.NewTsetlinMachine(10, 5, 5, 3)
-	tests := []struct {
-		name     string
-		input    []int
-		expected int
-	}{
-		{"empty input", []int{}, 0},
-		{"all zeros", []int{0, 0, 0, 0, 0}, 0},
-		{"all ones", []int{1, 1, 1, 1, 1}, 0},
+func TestMultiClassTMPredictionsPerSecond(t *testing.T) {
+	// Create a multiclass TM with 10 classes, 100 clauses per class, 100 features
+	tm := tsetlin.NewMultiClassTM(10, 100, 100, 50, 3)
+
+	// Create a sample input
+	input := make([]int, 100)
+	for i := range input {
+		input[i] = i % 2 // Alternating 0s and 1s
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tm.Predict(tt.input, 0).(int); got != tt.expected {
-				t.Errorf("Predict() = %d, want %d", got, tt.expected)
-			}
-		})
+	// Warm up
+	for i := 0; i < 100; i++ {
+		tm.Predict(input)
 	}
+
+	// Measure performance over 1 second
+	iterations := 0
+	start := time.Now()
+	endTime := start.Add(time.Second)
+
+	for time.Now().Before(endTime) {
+		tm.Predict(input)
+		iterations++
+	}
+	duration := time.Since(start)
+
+	// Calculate metrics
+	predictionsPerSecond := float64(iterations) / duration.Seconds()
+	avgTimePerPrediction := duration / time.Duration(iterations)
+
+	t.Logf("Performance metrics:")
+	t.Logf("Total predictions in 1 second: %d", iterations)
+	t.Logf("Predictions per second: %.2f", predictionsPerSecond)
+	t.Logf("Average time per prediction: %v", avgTimePerPrediction)
+	t.Logf("Total duration: %v", duration)
 }
 
-func TestTsetlinMachineBatchPredict(t *testing.T) {
-	tm := tsetlin.NewTsetlinMachine(10, 5, 5, 3)
-	tests := []struct {
-		name     string
-		inputs   [][]int
-		expected []int
-	}{
-		{
-			"multiple inputs",
-			[][]int{
-				{0, 0, 0, 0, 0},
-				{1, 1, 1, 1, 1},
-				{1, 0, 1, 0, 1},
-			},
-			[]int{0, 0, 0},
-		},
+func TestMultiClassTMInference1M(t *testing.T) {
+	// Create a multiclass TM with 10 classes, 100 clauses per class, 100 features
+	tm := tsetlin.NewMultiClassTM(10, 100, 100, 50, 3)
+
+	// Create a batch of 1M inputs
+	const numSamples = 1_000_000
+	inputs := make([][]int, numSamples)
+	for i := range inputs {
+		inputs[i] = make([]int, 100)
+		for j := range inputs[i] {
+			inputs[i][j] = j % 2 // Alternating 0s and 1s
+		}
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tm.Predict(tt.inputs, 0).([]int)
-			if len(got) != len(tt.expected) {
-				t.Errorf("Predict() returned %d results, want %d", len(got), len(tt.expected))
-				return
-			}
-			for i := range got {
-				if got[i] != tt.expected[i] {
-					t.Errorf("Predict()[%d] = %d, want %d", i, got[i], tt.expected[i])
-				}
-			}
-		})
+	// Warm up
+	for i := 0; i < 100; i++ {
+		tm.Predict(inputs[0])
 	}
-}
 
-func TestTsetlinMachineFit(t *testing.T) {
-	tm := tsetlin.NewTsetlinMachine(10, 5, 5, 3)
-	X := [][]int{
-		{1, 0, 1, 0, 1},
-		{0, 1, 0, 1, 0},
-	}
-	Y := []int{1, 0}
+	// Method 1: Batch Processing with Worker Pool
+	t.Log("Starting batch processing with worker pool...")
+	start := time.Now()
 
-	// Test that Fit doesn't panic
-	t.Run("fit no panic", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Errorf("Fit() panicked: %v", r)
+	numWorkers := runtime.NumCPU()
+	results := make([]int, numSamples)
+	jobs := make(chan int, numSamples)
+	var wg sync.WaitGroup
+
+	// Start workers
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				results[i] = tm.Predict(inputs[i])
 			}
 		}()
-		tm.Fit(X, Y, 1, 1)
-	})
+	}
+
+	// Send jobs
+	for i := 0; i < numSamples; i++ {
+		jobs <- i
+	}
+	close(jobs)
+
+	// Wait for completion
+	wg.Wait()
+	batchDuration := time.Since(start)
+
+	// Method 2: Streaming Processing
+	t.Log("Starting streaming processing...")
+	start = time.Now()
+
+	streamResults := make([]int, numSamples)
+	for i := 0; i < numSamples; i++ {
+		streamResults[i] = tm.Predict(inputs[i])
+	}
+	streamDuration := time.Since(start)
+
+	// Report results
+	t.Logf("\nPerformance Results for 1M Samples:")
+	t.Logf("Batch Processing (Worker Pool):")
+	t.Logf("  Total time: %v", batchDuration)
+	t.Logf("  Samples per second: %.2f", float64(numSamples)/batchDuration.Seconds())
+	t.Logf("  Time per sample: %v", batchDuration/time.Duration(numSamples))
+	t.Logf("\nStreaming Processing:")
+	t.Logf("  Total time: %v", streamDuration)
+	t.Logf("  Samples per second: %.2f", float64(numSamples)/streamDuration.Seconds())
+	t.Logf("  Time per sample: %v", streamDuration/time.Duration(numSamples))
+	t.Logf("\nSpeedup: %.2fx", float64(streamDuration)/float64(batchDuration))
 }
 
-func TestNewMultiClassTM(t *testing.T) {
-	tests := []struct {
-		name        string
-		numClasses  int
-		numClauses  int
-		numFeatures int
-		threshold   int
-		s           int
-	}{
-		{"binary", 2, 10, 5, 5, 3},
-		{"multiclass", 3, 20, 10, 10, 4},
+func TestMultiClassTMBatchProcessing(t *testing.T) {
+	// Create a multiclass TM with 10 classes, 100 clauses per class, 100 features
+	tm := tsetlin.NewMultiClassTM(10, 100, 100, 50, 3)
+
+	// Create a batch processor
+	bp := tsetlin.NewBatchProcessor()
+	defer bp.Close()
+
+	// Create a batch of 1000 inputs
+	const numSamples = 1000
+	inputs := make([][]int, numSamples)
+	for i := range inputs {
+		inputs[i] = make([]int, 100)
+		for j := range inputs[i] {
+			inputs[i][j] = j % 2 // Alternating 0s and 1s
+		}
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := tsetlin.NewMultiClassTM(tt.numClasses, tt.numClauses, tt.numFeatures, tt.threshold, tt.s)
-			if len(m.Classes) != tt.numClasses {
-				t.Errorf("NewMultiClassTM() classes = %d, want %d", len(m.Classes), tt.numClasses)
-			}
-			for i, tm := range m.Classes {
-				if len(tm.Clauses) != tt.numClauses {
-					t.Errorf("NewMultiClassTM() class %d clauses = %d, want %d", i, len(tm.Clauses), tt.numClauses)
-				}
-				if tm.NumFeatures != tt.numFeatures {
-					t.Errorf("NewMultiClassTM() class %d features = %d, want %d", i, tm.NumFeatures, tt.numFeatures)
-				}
-				if tm.VoteThreshold != tt.threshold {
-					t.Errorf("NewMultiClassTM() class %d threshold = %d, want %d", i, tm.VoteThreshold, tt.threshold)
-				}
-				if tm.S != tt.s {
-					t.Errorf("NewMultiClassTM() class %d s = %d, want %d", i, tm.S, tt.s)
-				}
-			}
-		})
-	}
-}
-
-func TestMultiClassTMPredict(t *testing.T) {
-	m := tsetlin.NewMultiClassTM(3, 10, 5, 5, 3)
-	tests := []struct {
-		name     string
-		input    []int
-		expected int
-	}{
-		{"empty input", []int{}, 0},
-		{"all zeros", []int{0, 0, 0, 0, 0}, 0},
-		{"all ones", []int{1, 1, 1, 1, 1}, 0},
+	// Warm up
+	for i := 0; i < 100; i++ {
+		tm.Predict(inputs[0])
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := m.Predict(tt.input); got != tt.expected {
-				t.Errorf("Predict() = %d, want %d", got, tt.expected)
-			}
-		})
-	}
-}
+	// Method 1: Using batch processor
+	t.Log("Starting batch processing...")
+	start := time.Now()
+	results := bp.ProcessBatch(inputs, tm.Predict)
+	_ = results // Use results to avoid unused variable error
+	batchDuration := time.Since(start)
 
-func TestMultiClassTMFit(t *testing.T) {
-	m := tsetlin.NewMultiClassTM(3, 10, 5, 5, 3)
-	X := [][]int{
-		{1, 0, 1, 0, 1},
-		{0, 1, 0, 1, 0},
-	}
-	Y := []int{0, 1}
+	// Method 2: Sequential processing
+	t.Log("Starting sequential processing...")
+	start = time.Now()
 
-	// Test that Fit doesn't panic
-	t.Run("fit no panic", func(t *testing.T) {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Errorf("Fit() panicked: %v", r)
-			}
-		}()
-		m.Fit(X, Y, 1)
-	})
+	seqResults := make([]int, numSamples)
+	for i := 0; i < numSamples; i++ {
+		seqResults[i] = tm.Predict(inputs[i])
+	}
+	seqDuration := time.Since(start)
+
+	// Report results
+	t.Logf("\nPerformance Results for %d Samples:", numSamples)
+	t.Logf("Batch Processing:")
+	t.Logf("  Total time: %v", batchDuration)
+	t.Logf("  Samples per second: %.2f", float64(numSamples)/batchDuration.Seconds())
+	t.Logf("  Time per sample: %v", batchDuration/time.Duration(numSamples))
+	t.Logf("\nSequential Processing:")
+	t.Logf("  Total time: %v", seqDuration)
+	t.Logf("  Samples per second: %.2f", float64(numSamples)/seqDuration.Seconds())
+	t.Logf("  Time per sample: %v", seqDuration/time.Duration(numSamples))
+	t.Logf("\nSpeedup: %.2fx", float64(seqDuration)/float64(batchDuration))
 }

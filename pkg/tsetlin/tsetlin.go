@@ -143,7 +143,6 @@ func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int) interface{} {
 	var inputs [][]int
 	switch x := X.(type) {
 	case []int:
-		// Convert single input to batch of size 1
 		inputs = [][]int{x}
 	case [][]int:
 		inputs = x
@@ -156,10 +155,8 @@ func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int) interface{} {
 	jobs := make(chan int, n)
 	var wg sync.WaitGroup
 
-	// Use CPU count if numWorkers is 0
-	if numWorkers == 0 {
-		numWorkers = runtime.NumCPU()
-	}
+	// Always use all available CPU cores for parallel processing
+	numWorkers = runtime.NumCPU()
 
 	worker := func() {
 		for i := range jobs {
@@ -191,7 +188,6 @@ func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int) interface{} {
 
 	wg.Wait()
 
-	// Return single result for single input
 	if _, ok := X.([]int); ok {
 		return results[0]
 	}
@@ -242,6 +238,14 @@ func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 	}
 }
 
+// MultiClassTM represents a multiclass Tsetlin Machine
+type MultiClassTM struct {
+	Classes []*TsetlinMachine
+	workers int
+	jobChan chan int
+	wg      sync.WaitGroup
+}
+
 // NewMultiClassTM creates a new multiclass Tsetlin Machine.
 // numClasses: number of classes to classify
 // numClauses: number of clauses per class
@@ -251,11 +255,64 @@ func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 func NewMultiClassTM(numClasses, numClauses, numFeatures, threshold, s int) *MultiClassTM {
 	m := &MultiClassTM{
 		Classes: make([]*TsetlinMachine, numClasses),
+		workers: runtime.NumCPU(),
+		jobChan: make(chan int, 1000), // Buffer size of 1000 jobs
 	}
 	for i := 0; i < numClasses; i++ {
 		m.Classes[i] = NewTsetlinMachine(numClauses, numFeatures, threshold, s)
 	}
 	return m
+}
+
+// PredictBatch performs batch prediction using a worker pool.
+// It processes multiple inputs in parallel and returns their predictions.
+func (m *MultiClassTM) PredictBatch(inputs [][]int) []int {
+	numSamples := len(inputs)
+	results := make([]int, numSamples)
+
+	// Start workers if not already running
+	if m.jobChan == nil {
+		m.jobChan = make(chan int, 1000)
+		m.startWorkers()
+	}
+
+	// Create a wait group for this batch
+	var batchWg sync.WaitGroup
+	batchWg.Add(numSamples)
+
+	// Process each input
+	for i := range inputs {
+		go func(idx int) {
+			defer batchWg.Done()
+			results[idx] = m.Predict(inputs[idx])
+		}(i)
+	}
+
+	// Wait for all predictions to complete
+	batchWg.Wait()
+	return results
+}
+
+// startWorkers initializes the worker pool
+func (m *MultiClassTM) startWorkers() {
+	for w := 0; w < m.workers; w++ {
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			for range m.jobChan {
+				// Workers are now used for batch processing
+			}
+		}()
+	}
+}
+
+// Close stops all workers and cleans up resources
+func (m *MultiClassTM) Close() {
+	if m.jobChan != nil {
+		close(m.jobChan)
+		m.wg.Wait()
+		m.jobChan = nil
+	}
 }
 
 // Fit trains the multiclass Tsetlin Machine on the provided data.

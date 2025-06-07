@@ -27,7 +27,7 @@ func main() {
 	)
 
 	// Train on the dataset
-	tm.Fit(X, Y, 1000) // Train to recognize class=1
+	tm.Fit(X, Y, 100) // Train to recognize class=1
 
 	// Predict on new inputs
 

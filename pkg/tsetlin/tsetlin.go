@@ -1,6 +1,8 @@
 package tsetlin
 
 import (
+	"math"
+	"math/bits"
 	"math/rand"
 	"runtime"
 	"sync"
@@ -41,6 +43,14 @@ func NewTsetlinMachine(numClauses, numFeatures, voteThreshold, s int) *TsetlinMa
 	return tm
 }
 
+func updateClauseWeightPositive(clause *Clause) {
+	clause.Weight = math.Min(3.0, clause.Weight+0.01)
+}
+
+func updateClauseWeightNegative(clause *Clause) {
+	clause.Weight = math.Max(0.1, clause.Weight-0.01)
+}
+
 // EvaluateClause determines if a clause is satisfied by the input.
 // A clause is satisfied if all its included literals are present and all its
 // excluded literals are absent in the input.
@@ -50,30 +60,22 @@ func EvaluateClause(c Clause, input BitVector) bool {
 	}
 	for w := 0; w < len(input); w++ {
 		word := input[w]
-		if word == 0 {
-			continue
-		}
-		for bit := 0; bit < wordSize; bit++ {
-			if (word>>bit)&1 == 1 {
-				idx := w*wordSize + bit
-				if idx < len(c.Exclude)*4 && c.Exclude.Get(idx) >= ActivationThreshold {
-					return false
-				}
+		for word != 0 {
+			bit := bits.TrailingZeros64(word)
+			idx := w*wordSize + bit
+			if idx < len(c.Exclude)*4 && c.Exclude.Get(idx) >= ActivationThreshold {
+				return false
 			}
+			word &= word - 1
 		}
-	}
-	for w := 0; w < len(input); w++ {
 		notWord := ^input[w]
-		if notWord == 0 {
-			continue
-		}
-		for bit := 0; bit < wordSize; bit++ {
-			if (notWord>>bit)&1 == 1 {
-				idx := w*wordSize + bit
-				if idx < len(c.Include)*4 && c.Include.Get(idx) >= ActivationThreshold {
-					return false
-				}
+		for notWord != 0 {
+			bit := bits.TrailingZeros64(notWord)
+			idx := w*wordSize + bit
+			if idx < len(c.Include)*4 && c.Include.Get(idx) >= ActivationThreshold {
+				return false
 			}
+			notWord &= notWord - 1
 		}
 	}
 	return true
@@ -83,43 +85,43 @@ func EvaluateClause(c Clause, input BitVector) bool {
 // Type I feedback is used to reinforce correct predictions by strengthening
 // the association between literals and their clauses.
 func typeIFeedback(clause *Clause, input BitVector, s int) {
+	sInv := 1.0 / float32(s)
 	for w := 0; w < len(input); w++ {
 		word := input[w]
-		for bit := 0; bit < wordSize; bit++ {
+		for word != 0 {
+			bit := bits.TrailingZeros64(word)
 			idx := w*wordSize + bit
-			if idx < len(clause.Include)*4 {
-				if (word>>bit)&1 == 1 {
-					if rand.Float32() < 1.0/float32(s) {
-						clause.Include.Inc(idx)
-						clause.Exclude.Dec(idx)
-					}
-				} else {
-					if rand.Float32() < 1.0/float32(s) {
-						clause.Exclude.Inc(idx)
-						clause.Include.Dec(idx)
-					}
-				}
+			if idx < len(clause.Include)*4 && rand.Float32() < sInv {
+				clause.Include.Inc(idx)
+				clause.Exclude.Dec(idx)
 			}
+			word &= word - 1
+		}
+		notWord := ^input[w]
+		for notWord != 0 {
+			bit := bits.TrailingZeros64(notWord)
+			idx := w*wordSize + bit
+			if idx < len(clause.Exclude)*4 && rand.Float32() < sInv {
+				clause.Exclude.Inc(idx)
+				clause.Include.Dec(idx)
+			}
+			notWord &= notWord - 1
 		}
 	}
 }
 
-// typeIIFeedback applies type II feedback to a clause.
-// Type II feedback is used to correct incorrect predictions by weakening
-// the association between literals and their clauses.
 func typeIIFeedback(clause *Clause, input BitVector, s int) {
+	sInv := 1.0 / float32(s)
 	for w := 0; w < len(input); w++ {
 		word := input[w]
-		for bit := 0; bit < wordSize; bit++ {
+		for word != 0 {
+			bit := bits.TrailingZeros64(word)
 			idx := w*wordSize + bit
-			if idx < len(clause.Include)*4 {
-				if (word>>bit)&1 == 1 {
-					if rand.Float32() < 1.0/float32(s) {
-						clause.Include.Dec(idx)
-						clause.Exclude.Dec(idx)
-					}
-				}
+			if idx < len(clause.Include)*4 && rand.Float32() < sInv {
+				clause.Include.Dec(idx)
+				clause.Exclude.Dec(idx)
 			}
+			word &= word - 1
 		}
 	}
 }
@@ -139,6 +141,7 @@ func (tm *TsetlinMachine) Score(input []int) int {
 
 // Predict makes predictions for inputs in parallel.
 // If numWorkers is 0, it will use the number of available CPUs.
+// Optimized parallel prediction with input vector pre-packing
 func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int) interface{} {
 	var inputs [][]int
 	switch x := X.(type) {
@@ -152,18 +155,22 @@ func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int) interface{} {
 
 	n := len(inputs)
 	results := make([]int, n)
+	packed := make([]BitVector, n)
+	for i := 0; i < n; i++ {
+		packed[i] = PackInputVector(inputs[i])
+	}
+
 	jobs := make(chan int, n)
 	var wg sync.WaitGroup
-
-	// Always use all available CPU cores for parallel processing
-	numWorkers = runtime.NumCPU()
+	if numWorkers <= 0 {
+		numWorkers = runtime.NumCPU()
+	}
 
 	worker := func() {
 		for i := range jobs {
-			bv := PackInputVector(inputs[i])
 			sum := 0.0
 			for _, c := range tm.Clauses {
-				if EvaluateClause(c, bv) {
+				if EvaluateClause(c, packed[i]) {
 					sum += float64(c.Vote) * float64(c.Weight)
 				}
 			}
@@ -180,12 +187,10 @@ func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int) interface{} {
 	for w := 0; w < numWorkers; w++ {
 		go worker()
 	}
-
 	for i := 0; i < n; i++ {
 		jobs <- i
 	}
 	close(jobs)
-
 	wg.Wait()
 
 	if _, ok := X.([]int); ok {
@@ -218,7 +223,7 @@ func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 					typeIFeedback(clause, bv, tm.S)
 					// Reinforce clause if it fired correctly
 					if EvaluateClause(*clause, bv) {
-						clause.Weight += 0.01
+						updateClauseWeightPositive(clause)
 						if clause.Weight > 3.0 {
 							clause.Weight = 3.0
 						}
@@ -227,7 +232,7 @@ func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 					typeIIFeedback(clause, bv, tm.S)
 					// Decay clause if it misfired
 					if EvaluateClause(*clause, bv) {
-						clause.Weight -= 0.01
+						updateClauseWeightNegative(clause)
 						if clause.Weight < 0.1 {
 							clause.Weight = 0.1
 						}

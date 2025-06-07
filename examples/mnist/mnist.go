@@ -87,7 +87,7 @@ func main() {
 	numClauses := 100 // Number of clauses per class
 	numFeatures := 4  // Number of input features
 	threshold := 10   // Classification threshold
-	s := 2            // Specificity parameter
+	s := 2.0          // Specificity parameter
 	//dropoutProb := 0.2 // Probability of dropping a clause during training
 
 	machine := tsetlin.NewMultiClassTM(numClasses, numClauses, numFeatures, threshold, s)

@@ -63,7 +63,7 @@ type TsetlinMachine struct {
 	VoteThreshold int
 
 	// S is the specificity parameter that controls the probability of type I feedback
-	S int
+	S float64
 }
 
 // MultiClassTM represents a multiclass Tsetlin Machine classifier.

@@ -10,14 +10,13 @@ const (
 	wordSize = 64
 
 	// T is the threshold for prediction decisions in the Tsetlin Machine
-	T = 1
 
 	// stateMax defines the maximum value for automaton states
 	stateMax = 100
 
 	// ActivationThreshold is the threshold value that determines when a Tsetlin automaton
 	// activates its associated literal
-	ActivationThreshold = 50
+	ActivationThreshold = (stateMax / 2) - 1
 )
 
 // BitVector represents a vector of bits packed into uint64 words for efficient storage

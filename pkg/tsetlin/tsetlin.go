@@ -1,6 +1,7 @@
 package tsetlin
 
 import (
+	"fmt"
 	"math"
 	"math/bits"
 	"math/rand"
@@ -15,7 +16,7 @@ import (
 // s: specificity parameter that controls the probability of type I feedback
 func NewTsetlinMachine(numClauses, numFeatures, voteThreshold, s int) *TsetlinMachine {
 	if voteThreshold == -1 {
-		voteThreshold = numClauses / 2
+		voteThreshold = 0
 	}
 	tm := &TsetlinMachine{
 		Clauses:       make([]Clause, numClauses),
@@ -37,7 +38,7 @@ func NewTsetlinMachine(numClauses, numFeatures, voteThreshold, s int) *TsetlinMa
 			Exclude:     exclude,
 			Vote:        1 - 2*(i%2),
 			Weight:      1.0,
-			DropoutProb: 0.0,
+			DropoutProb: 0.2,
 		}
 	}
 	return tm
@@ -74,6 +75,7 @@ func EvaluateClause(c Clause, input BitVector) bool {
 			idx := w*wordSize + bit
 			if idx < len(c.Include)*4 && c.Include.Get(idx) >= ActivationThreshold {
 				return false
+
 			}
 			notWord &= notWord - 1
 		}
@@ -130,12 +132,15 @@ func typeIIFeedback(clause *Clause, input BitVector, s int) {
 // This can be used to get a confidence score for the prediction.
 func (tm *TsetlinMachine) Score(input []int) int {
 	bv := PackInputVector(input)
+
 	sum := 0.0
 	for _, c := range tm.Clauses {
 		if EvaluateClause(c, bv) {
 			sum += float64(c.Vote) * float64(c.Weight)
+
 		}
 	}
+
 	return int(sum)
 }
 
@@ -163,7 +168,7 @@ func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int) interface{} {
 	jobs := make(chan int, n)
 	var wg sync.WaitGroup
 	if numWorkers <= 0 {
-		numWorkers = runtime.NumCPU()
+		numWorkers = runtime.NumCPU() * 2
 	}
 
 	worker := func() {
@@ -346,5 +351,6 @@ func (m *MultiClassTM) Predict(X []int) int {
 			bestClass = class
 		}
 	}
+	fmt.Println(bestScore)
 	return bestClass
 }

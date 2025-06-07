@@ -79,15 +79,15 @@ func main() {
 	// Generate 100 distinct binary patterns for classification
 	//X, y := generateStratifiedSamples(5000, 10, 784)
 
-	X, y := loadBinaryMNIST("./mnist", 75, 10000)
+	X, y := loadBinaryMNIST("./mnist", 75, 1000)
 	fmt.Printf("Loaded %d samples, each with %d bits\n", len(X), len(X[0]))
 	fmt.Println("First 10 labels:", y[:10])
 	// Create multiclass Tsetlin Machine
 	numClasses := 10
-	numClauses := 100 // Number of clauses per class
-	numFeatures := 4  // Number of input features
-	threshold := 10   // Classification threshold
-	s := 2.0          // Specificity parameter
+	numClauses := 2000 // Number of clauses per class
+	numFeatures := 4   // Number of input features
+	threshold := 50    // Classification threshold
+	s := 10.0          // Specificity parameter
 	//dropoutProb := 0.2 // Probability of dropping a clause during training
 
 	machine := tsetlin.NewMultiClassTM(numClasses, numClauses, numFeatures, threshold, s)
@@ -95,7 +95,7 @@ func main() {
 	// Train the model with dropout
 	fmt.Println("Training the model...")
 	trainstart := time.Now()
-	for epoch := 0; epoch < 100; epoch++ {
+	for epoch := 0; epoch < 250; epoch++ {
 		// Apply dropout for this epoch
 		start := time.Now()
 		machine.Fit(X, y, 1)

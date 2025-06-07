@@ -77,12 +77,12 @@ func main() {
 	// Training data for pattern recognition
 	// Each pattern is represented by 4 binary features
 	// Generate 100 distinct binary patterns for classification
-	X, y := generateStratifiedSamples(5000, 10, 10)
+	X, y := generateStratifiedSamples(100, 10, 10)
 
 	fmt.Printf("Loaded %d samples, each with %d bits\n", len(X), len(X[0]))
 	fmt.Println("First 10 labels:", y[:10])
 	// Create multiclass Tsetlin Machine
-	numClasses := len(y)
+	numClasses := 10
 	numClauses := 1000       // Number of clauses per class
 	numFeatures := len(X[0]) // Number of input features
 	threshold := 500         // Classification threshold
@@ -94,7 +94,7 @@ func main() {
 	// Train the model with dropout
 	fmt.Println("Training the model...")
 	trainstart := time.Now()
-	for epoch := 0; epoch < 10; epoch++ {
+	for epoch := 0; epoch < 1000; epoch++ {
 		// Apply dropout for this epoch
 		start := time.Now()
 		machine.Fit(X, y, 1)

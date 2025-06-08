@@ -123,38 +123,80 @@ func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int) interface{} {
 // targetClass: the class to learn (1 for positive, 0 for negative)
 // epochs: number of training epochs
 func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
-	for epoch := 0; epoch < epochs; epoch++ {
-		for i := range X {
-			input := X[i]
-			y := 0
-			if Y[i] == targetClass {
-				y = 1
-			}
-			prediction := tm.Predict(input, 0).(int)
-			feedback := y - prediction
-			for j := range tm.Clauses {
-				clause := &tm.Clauses[j]
-				fType := feedback * clause.Vote
-				bv := PackInputVector(input)
+	batchSize := 32 // You can tune this
+	total := len(X)
 
-				if fType == 1 {
-					typeIFeedback(clause, bv, tm.S)
-					// Reinforce clause if it fired correctly
-					if EvaluateClause(*clause, bv) {
-						updateClauseWeightPositive(clause)
-						if clause.Weight > 3.0 {
-							clause.Weight = 3.0
-						}
+	// Dynamically size workers: 1 worker per 32 clauses, minimum 1
+	numWorkers := len(tm.Clauses) / 32
+	if numWorkers < 1 {
+		numWorkers = 1
+	} else if numWorkers > 32 {
+		numWorkers = 32 // Cap to avoid oversubscription
+	}
+
+	tasks := make(chan ClauseUpdateTask, 1024)
+	var wg sync.WaitGroup
+
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go tm.updateClauseWorker(tasks, &wg)
+	}
+
+	for epoch := 0; epoch < epochs; epoch++ {
+		for b := 0; b < total; b += batchSize {
+			end := b + batchSize
+			if end > total {
+				end = total
+			}
+
+			for i := b; i < end; i++ {
+				y := 0
+				if Y[i] == targetClass {
+					y = 1
+				}
+
+				input := X[i]
+				bv := PackInputVector(input)
+				prediction := tm.Predict(input, 0).(int)
+				feedback := y - prediction
+
+				for j := range tm.Clauses {
+					tasks <- ClauseUpdateTask{
+						ClauseIndex: j,
+						Clause:      &tm.Clauses[j],
+						Feedback:    feedback,
+						Input:       bv,
+						S:           tm.S,
 					}
-				} else if fType == -1 {
-					typeIIFeedback(clause, bv, tm.S)
-					// Decay clause if it misfired
-					if EvaluateClause(*clause, bv) {
-						updateClauseWeightNegative(clause)
-						if clause.Weight < 0.1 {
-							clause.Weight = 0.1
-						}
-					}
+				}
+			}
+		}
+	}
+
+	close(tasks)
+	wg.Wait()
+}
+
+func (tm *TsetlinMachine) updateClauseWorker(tasks <-chan ClauseUpdateTask, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for task := range tasks {
+		clause := task.Clause
+		fType := task.Feedback * clause.Vote
+
+		if fType == 1 {
+			typeIFeedback(clause, task.Input, task.S)
+			if EvaluateClause(*clause, task.Input) {
+				updateClauseWeightPositive(clause)
+				if clause.Weight > 3.0 {
+					clause.Weight = 3.0
+				}
+			}
+		} else if fType == -1 {
+			typeIIFeedback(clause, task.Input, task.S)
+			if EvaluateClause(*clause, task.Input) {
+				updateClauseWeightNegative(clause)
+				if clause.Weight < 0.1 {
+					clause.Weight = 0.1
 				}
 			}
 		}

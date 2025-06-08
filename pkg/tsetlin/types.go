@@ -72,3 +72,11 @@ type TsetlinMachine struct {
 // 	// Classes contains one Tsetlin Machine for each class
 // 	Classes []*TsetlinMachine
 // }
+
+type ClauseUpdateTask struct {
+	ClauseIndex int       // Index of the clause in the clause list
+	Clause      *Clause   // Pointer to the clause being updated
+	Feedback    int       // Feedback signal (+1 or -1)
+	Input       BitVector // Input vector for this training sample
+	S           float64   // Specificity parameter for feedback control
+}

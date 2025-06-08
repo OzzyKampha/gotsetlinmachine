@@ -77,7 +77,7 @@ func main() {
 	// Training data for pattern recognition
 	// Each pattern is represented by 4 binary features
 	// Generate 100 distinct binary patterns for classification
-	X, y := generateStratifiedSamples(100, 10, 10)
+	X, y := generateStratifiedSamples(10000, 10, 10)
 
 	fmt.Printf("Loaded %d samples, each with %d bits\n", len(X), len(X[0]))
 	fmt.Println("First 10 labels:", y[:10])

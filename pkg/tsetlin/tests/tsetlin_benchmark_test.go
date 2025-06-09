@@ -103,7 +103,7 @@ func BenchmarkTsetlinMachineOperations(b *testing.B) {
 	b.Run("Predict", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = tm.Predict(X[0], 0).(int)
+			_ = tm.Predict(X[0], 0, false).(int)
 		}
 	})
 
@@ -112,7 +112,7 @@ func BenchmarkTsetlinMachineOperations(b *testing.B) {
 		input := tsetlin.PackInputVector(X[0])
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = tsetlin.EvaluateClause(clause, input)
+			_ = tsetlin.EvaluateClause(clause, input, false)
 		}
 	})
 
@@ -153,14 +153,14 @@ func BenchmarkParallelPredict(b *testing.B) {
 	b.Run("Parallel", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = tm.Predict(X, numWorkers).([]int)
+			_ = tm.Predict(X, numWorkers, false).([]int)
 		}
 	})
 
 	b.Run("Sequential", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_ = tm.Predict(X, 1).([]int)
+			_ = tm.Predict(X, 1, false).([]int)
 		}
 	})
 }

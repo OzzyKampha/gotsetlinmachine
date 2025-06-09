@@ -21,7 +21,7 @@ func ExampleTsetlinMachinePredict() {
 
 	// Make a prediction
 	input := []int{1, 0, 1, 0, 1}
-	prediction := tm.Predict(input, 0).(int)
+	prediction := tm.Predict(input, 0, false).(int)
 	fmt.Printf("Prediction: %d\n", prediction)
 	// Output: Prediction: 0
 }

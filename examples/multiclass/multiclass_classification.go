@@ -95,50 +95,51 @@ func main() {
 	fmt.Println("Training the model...")
 	trainstart := time.Now()
 	for epoch := 0; epoch < 10; epoch++ {
-	for epoch := 0; epoch < 1; epoch++ {
-		// Apply dropout for this epoch
-		start := time.Now()
-		machine.Fit(X, y, 1)
-		duration := time.Since(start)
-		fmt.Printf("Epoch duration: %v\n", duration)
-	}
-	duration := time.Since(trainstart)
-	fmt.Printf("Traing duration: %v\n", duration)
-
-	// Test the model and calculate metrics
-	fmt.Println("\nTesting the model...")
-	predictions := make([]int, len(X))
-	correct := 0
-
-	predstart := time.Now()
-	prediction := machine.PredictBatch(X)
-	predtime := time.Since(predstart)
-
-	totalSamples := len(X)
-	eps := float64(totalSamples) / predtime.Seconds()
-
-	for i := range X {
-		predictions[i] = prediction[i]
-		fmt.Printf("Input: %v..., Expected: %d, Predicted: %d\n",
-			X[i][:10], y[i], prediction[i])
-		if prediction[i] == y[i] {
-			correct++
+		for epoch := 0; epoch < 1; epoch++ {
+			// Apply dropout for this epoch
+			start := time.Now()
+			machine.Fit(X, y, 1)
+			duration := time.Since(start)
+			fmt.Printf("Epoch duration: %v\n", duration)
 		}
-	}
-	fmt.Printf("Total prediction time: %v\n", predtime)
-	fmt.Printf("Events per second (EPS): %.2f\n", eps)
+		duration := time.Since(trainstart)
+		fmt.Printf("Traing duration: %v\n", duration)
 
-	accuracy := float64(correct) / float64(len(X)) * 100
-	fmt.Printf("\nAccuracy: %.2f%% (%d/%d correct)\n", accuracy, correct, len(X))
+		// Test the model and calculate metrics
+		fmt.Println("\nTesting the model...")
+		predictions := make([]int, len(X))
+		correct := 0
 
-	// Calculate and display detailed metrics
-	macroF1, precision, recall, f1 := calculateMetrics(predictions, y, numClasses)
-	fmt.Println("\nDetailed Metrics:")
-	for i := 0; i < numClasses; i++ {
-		fmt.Printf("Class %d:\n", i)
-		fmt.Printf("  Precision: %.2f%%\n", precision[i]*100)
-		fmt.Printf("  Recall: %.2f%%\n", recall[i]*100)
-		fmt.Printf("  F1 Score: %.2f%%\n", f1[i]*100)
+		predstart := time.Now()
+		prediction := machine.PredictBatch(X)
+		predtime := time.Since(predstart)
+
+		totalSamples := len(X)
+		eps := float64(totalSamples) / predtime.Seconds()
+
+		for i := range X {
+			predictions[i] = prediction[i]
+			fmt.Printf("Input: %v..., Expected: %d, Predicted: %d\n",
+				X[i][:10], y[i], prediction[i])
+			if prediction[i] == y[i] {
+				correct++
+			}
+		}
+		fmt.Printf("Total prediction time: %v\n", predtime)
+		fmt.Printf("Events per second (EPS): %.2f\n", eps)
+
+		accuracy := float64(correct) / float64(len(X)) * 100
+		fmt.Printf("\nAccuracy: %.2f%% (%d/%d correct)\n", accuracy, correct, len(X))
+
+		// Calculate and display detailed metrics
+		macroF1, precision, recall, f1 := calculateMetrics(predictions, y, numClasses)
+		fmt.Println("\nDetailed Metrics:")
+		for i := 0; i < numClasses; i++ {
+			fmt.Printf("Class %d:\n", i)
+			fmt.Printf("  Precision: %.2f%%\n", precision[i]*100)
+			fmt.Printf("  Recall: %.2f%%\n", recall[i]*100)
+			fmt.Printf("  F1 Score: %.2f%%\n", f1[i]*100)
+		}
+		fmt.Printf("\nMacro-average F1 Score: %.2f%%\n", macroF1*100)
 	}
-	fmt.Printf("\nMacro-average F1 Score: %.2f%%\n", macroF1*100)
 }

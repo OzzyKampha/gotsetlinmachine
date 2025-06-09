@@ -123,15 +123,15 @@ func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int, training bool) 
 // targetClass: the class to learn (1 for positive, 0 for negative)
 // epochs: number of training epochs
 func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
-	batchSize := 32 // You can tune this
+	batchSize := 32
 	total := len(X)
 
-	// Dynamically size workers: 1 worker per 32 clauses, minimum 1
+	// Worker pool sizing
 	numWorkers := len(tm.Clauses) / 32
 	if numWorkers < 1 {
 		numWorkers = 1
 	} else if numWorkers > 32 {
-		numWorkers = 32 // Cap to avoid oversubscription
+		numWorkers = 32
 	}
 
 	tasks := make(chan ClauseUpdateTask, 1024)
@@ -150,26 +150,15 @@ func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 			}
 
 			for i := b; i < end; i++ {
+				input := X[i]
 				y := 0
 				if Y[i] == targetClass {
 					y = 1
 				}
 
-				input := X[i]
-		for i := range X {
-			input := X[i]
-			y := 0
-			if Y[i] == targetClass {
-				y = 1
-			}
-			prediction := tm.Predict(input, 0, true).(int)
-			feedback := y - prediction
-			for j := range tm.Clauses {
-				clause := &tm.Clauses[j]
-				fType := feedback * clause.Vote
-				bv := PackInputVector(input)
-				prediction := tm.Predict(input, 0).(int)
+				prediction := tm.Predict(input, 0, true).(int)
 				feedback := y - prediction
+				bv := PackInputVector(input)
 
 				for j := range tm.Clauses {
 					tasks <- ClauseUpdateTask{
@@ -190,13 +179,14 @@ func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 
 func (tm *TsetlinMachine) updateClauseWorker(tasks <-chan ClauseUpdateTask, wg *sync.WaitGroup) {
 	defer wg.Done()
+
 	for task := range tasks {
 		clause := task.Clause
 		fType := task.Feedback * clause.Vote
 
 		if fType == 1 {
 			typeIFeedback(clause, task.Input, task.S)
-			if EvaluateClause(*clause, task.Input) {
+			if EvaluateClause(*clause, task.Input, true) {
 				updateClauseWeightPositive(clause)
 				if clause.Weight > 3.0 {
 					clause.Weight = 3.0
@@ -204,32 +194,14 @@ func (tm *TsetlinMachine) updateClauseWorker(tasks <-chan ClauseUpdateTask, wg *
 			}
 		} else if fType == -1 {
 			typeIIFeedback(clause, task.Input, task.S)
-			if EvaluateClause(*clause, task.Input) {
+			if EvaluateClause(*clause, task.Input, true) {
 				updateClauseWeightNegative(clause)
 				if clause.Weight < 0.1 {
 					clause.Weight = 0.1
-				if fType == 1 {
-					typeIFeedback(clause, bv, tm.S)
-					// Reinforce clause if it fired correctly
-					if EvaluateClause(*clause, bv, true) {
-						updateClauseWeightPositive(clause)
-						if clause.Weight > 3.0 {
-							clause.Weight = 3.0
-						}
-					}
-				} else if fType == -1 {
-					typeIIFeedback(clause, bv, tm.S)
-					// Decay clause if it misfired
-					if EvaluateClause(*clause, bv, true) {
-						updateClauseWeightNegative(clause)
-						if clause.Weight < 0.1 {
-							clause.Weight = 0.1
-						}
-					}
 				}
-				clause.UpdateFeatureMask()
-				//println(clause.FeatureMask)
 			}
 		}
+
+		clause.UpdateFeatureMask()
 	}
-}}
+}

@@ -2,7 +2,6 @@ package tests
 
 import (
 	"math/rand"
-	"runtime"
 	"testing"
 
 	"github.com/OzzyKampha/gotsetlinmachine/pkg/tsetlin"
@@ -146,21 +145,20 @@ func BenchmarkMultiClassTMOperations(b *testing.B) {
 }
 
 func BenchmarkParallelPredict(b *testing.B) {
-	tm := tsetlin.NewTsetlinMachine(100, 50, 50, 3)
+	tm := tsetlin.NewMultiClassTM(3, 100, 50, 50, 3)
 	X, _ := generateRandomData(10000, 50)
-	numWorkers := runtime.NumCPU()
 
 	b.Run("Parallel", func(b *testing.B) {
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_ = tm.Predict(X, numWorkers, false).([]int)
-		}
+
+		_ = tm.PredictBatch(X)
+
 	})
 
 	b.Run("Sequential", func(b *testing.B) {
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_ = tm.Predict(X, 1, false).([]int)
+		for _, x := range X {
+			_ = tm.Predict(x)
 		}
 	})
 }

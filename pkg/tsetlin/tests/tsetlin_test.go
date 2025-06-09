@@ -175,7 +175,7 @@ func TestMultiClassTMBatchProcessing(t *testing.T) {
 	defer bp.Close()
 
 	// Create a batch of 1000 inputs
-	const numSamples = 1000
+	const numSamples = 1_000_000
 	inputs := make([][]int, numSamples)
 	for i := range inputs {
 		inputs[i] = make([]int, 100)

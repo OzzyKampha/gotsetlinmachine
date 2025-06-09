@@ -232,4 +232,4 @@ func (tm *TsetlinMachine) updateClauseWorker(tasks <-chan ClauseUpdateTask, wg *
 			}
 		}
 	}
-}
+}}

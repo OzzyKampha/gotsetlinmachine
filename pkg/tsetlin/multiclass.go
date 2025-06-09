@@ -37,40 +37,34 @@ func (m *MultiClassTM) PredictBatch(inputs [][]int) []int {
 	numSamples := len(inputs)
 	results := make([]int, numSamples)
 
-	// Start workers if not already running
-	if m.jobChan == nil {
-		m.jobChan = make(chan int, 1000)
-		m.startWorkers()
+	type job struct {
+		index int
+		input []int
 	}
 
-	// Create a wait group for this batch
-	var batchWg sync.WaitGroup
-	batchWg.Add(numSamples)
+	jobs := make(chan job, len(inputs))
+	var wg sync.WaitGroup
 
-	// Process each input
-	for i := range inputs {
-		go func(idx int) {
-			defer batchWg.Done()
-			results[idx] = m.Predict(inputs[idx])
-		}(i)
-	}
-
-	// Wait for all predictions to complete
-	batchWg.Wait()
-	return results
-}
-
-// startWorkers initializes the worker pool
-func (m *MultiClassTM) startWorkers() {
+	// Start fixed-size worker pool
 	for w := 0; w < m.workers; w++ {
-		m.wg.Add(1)
+		wg.Add(1)
 		go func() {
-			defer m.wg.Done()
-			for range m.jobChan {
-				// Workers are now used for batch processing
+			defer wg.Done()
+			for j := range jobs {
+				results[j.index] = m.Predict(j.input)
 			}
 		}()
 	}
+
+	// Enqueue jobs
+	for i := range inputs {
+		jobs <- job{index: i, input: inputs[i]}
+	}
+	close(jobs)
+
+	// Wait for workers to finish
+	wg.Wait()
+	return results
 }
 
 // Close stops all workers and cleans up resources
@@ -86,7 +80,7 @@ func (m *MultiClassTM) Close() {
 // Training is performed in parallel for each class.
 func (m *MultiClassTM) Fit(X [][]int, Y []int, epochs int) {
 	var wg sync.WaitGroup
-	for class := 0; class < len(m.Classes); class++ {
+	for class := range m.Classes {
 		wg.Add(1)
 		go func(cls int) {
 			defer wg.Done()

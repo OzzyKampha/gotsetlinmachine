@@ -48,7 +48,7 @@ func (tm *TsetlinMachine) Score(input []int) int {
 
 	sum := 0.0
 	for _, c := range tm.Clauses {
-		if EvaluateClause(c, bv) {
+		if EvaluateClause(c, bv, false) {
 			sum += float64(c.Vote) * float64(c.Weight)
 
 		}
@@ -60,7 +60,7 @@ func (tm *TsetlinMachine) Score(input []int) int {
 // Predict makes predictions for inputs in parallel.
 // If numWorkers is 0, it will use the number of available CPUs.
 // Optimized parallel prediction with input vector pre-packing
-func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int) interface{} {
+func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int, training bool) interface{} {
 	var inputs [][]int
 	switch x := X.(type) {
 	case []int:
@@ -88,7 +88,7 @@ func (tm *TsetlinMachine) Predict(X interface{}, numWorkers int) interface{} {
 		for i := range jobs {
 			sum := 0.0
 			for _, c := range tm.Clauses {
-				if EvaluateClause(c, packed[i]) {
+				if EvaluateClause(c, packed[i], training) {
 					sum += float64(c.Vote) * float64(c.Weight)
 				}
 			}
@@ -130,7 +130,7 @@ func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 			if Y[i] == targetClass {
 				y = 1
 			}
-			prediction := tm.Predict(input, 0).(int)
+			prediction := tm.Predict(input, 0, true).(int)
 			feedback := y - prediction
 			for j := range tm.Clauses {
 				clause := &tm.Clauses[j]
@@ -140,7 +140,7 @@ func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 				if fType == 1 {
 					typeIFeedback(clause, bv, tm.S)
 					// Reinforce clause if it fired correctly
-					if EvaluateClause(*clause, bv) {
+					if EvaluateClause(*clause, bv, true) {
 						updateClauseWeightPositive(clause)
 						if clause.Weight > 3.0 {
 							clause.Weight = 3.0
@@ -149,13 +149,15 @@ func (tm *TsetlinMachine) Fit(X [][]int, Y []int, targetClass int, epochs int) {
 				} else if fType == -1 {
 					typeIIFeedback(clause, bv, tm.S)
 					// Decay clause if it misfired
-					if EvaluateClause(*clause, bv) {
+					if EvaluateClause(*clause, bv, true) {
 						updateClauseWeightNegative(clause)
 						if clause.Weight < 0.1 {
 							clause.Weight = 0.1
 						}
 					}
 				}
+				clause.UpdateFeatureMask()
+				//println(clause.FeatureMask)
 			}
 		}
 	}

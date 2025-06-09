@@ -48,6 +48,8 @@ type Clause struct {
 	// dropoutProb is the probability of dropping out this clause during training
 	// to prevent overfitting
 	DropoutProb float32
+
+	FeatureMask BitVector
 }
 
 // TsetlinMachine represents a single Tsetlin Machine classifier.

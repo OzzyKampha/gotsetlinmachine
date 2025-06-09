@@ -1,7 +1,6 @@
 package tsetlin
 
 import (
-	"fmt"
 	"runtime"
 	"sync"
 )
@@ -109,6 +108,6 @@ func (m *MultiClassTM) Predict(X []int) int {
 			bestClass = class
 		}
 	}
-	fmt.Println(bestScore)
+	//fmt.Println(bestScore)
 	return bestClass
 }
